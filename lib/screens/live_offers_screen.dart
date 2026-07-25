@@ -139,13 +139,74 @@ class _LiveOffersScreenState extends State<LiveOffersScreen> with SingleTickerPr
     );
   }
 
+  Future<void> _cancelPing(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Cancel this Ping?', style: TextStyle(fontWeight: FontWeight.w800)),
+        content: const Text('Are you sure you want to cancel this Ping? Nearby merchants will no longer see or send offers for it.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep Active', style: TextStyle(color: Color(0xFF64748B))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Yes, Cancel Ping'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('requests')
+          .update({'status': 'cancelled'})
+          .eq('id', widget.requestId);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ping cancelled successfully.'),
+            backgroundColor: Color(0xFF004D40),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to cancel Ping: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live Offers', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text('Live Responses', style: TextStyle(fontWeight: FontWeight.w800)),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
+        actions: [
+          TextButton.icon(
+            onPressed: () => _cancelPing(context),
+            icon: const Icon(Icons.cancel_outlined, size: 16, color: Color(0xFFEF4444)),
+            label: const Text('Cancel Ping', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w700, fontSize: 13)),
+          ),
+          const SizedBox(width: 8),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(color: const Color(0xFFE2E8F0), height: 1),
@@ -179,7 +240,7 @@ class _LiveOffersScreenState extends State<LiveOffersScreen> with SingleTickerPr
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Looking for nearby offers...',
+                        'Broadcasting Ping to nearby shops...',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -188,7 +249,7 @@ class _LiveOffersScreenState extends State<LiveOffersScreen> with SingleTickerPr
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'Shops & Helpers Near You are responding',
+                        'Local merchants & responders are reviewing your Ping',
                         style: TextStyle(
                           fontSize: 14,
                           color: Color(0xFF64748B),

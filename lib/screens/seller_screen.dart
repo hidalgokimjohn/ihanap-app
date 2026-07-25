@@ -10,7 +10,6 @@ import '../widgets/offer_bottom_sheet.dart';
 import '../widgets/order_summary_sheet.dart';
 import '../widgets/notification_bell.dart';
 import 'account/account_center_screen.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'responder_registration_screen.dart';
 import 'my_offers_screen.dart';
 
@@ -42,10 +41,11 @@ class _SellerScreenState extends State<SellerScreen> {
       case 'hardware':   return ['Parts & Hardware'];
       case 'rooms':      return ['Rooms & Boarding'];
       case 'rider':      return ['Express Rider'];
-      case 'community':  return ['Community Updates'];
-      case 'food':       return ['Parts & Hardware', 'Community Updates'];
-      case 'repair':     return ['Parts & Hardware'];
-      default:           return [];
+      case 'food':       return ['Food & Catering'];
+      case 'repair':     return ['Repair & Services'];
+      case 'general':    return ['General Store'];
+      case 'community':  return ['Community Updates', 'Community Helpers'];
+      default:           return ['Parts & Hardware', 'Repair & Services', 'Food & Catering', 'Express Rider', 'Rooms & Boarding', 'General Store', 'Community Updates', 'Community Helpers'];
     }
   }
 
@@ -176,12 +176,19 @@ class _SellerScreenState extends State<SellerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('iHanap for Merchants',
+        title: const Text('Ping for Merchants',
             style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
           const NotificationBell(),
+          IconButton(
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountCenterScreen()));
+            },
+            icon: const Icon(Icons.person_outline, color: Color(0xFF004D40)),
+            tooltip: 'Account Settings',
+          ),
           // Add Shop button
           IconButton(
             onPressed: _addNewShop,
@@ -217,12 +224,12 @@ class _SellerScreenState extends State<SellerScreen> {
                     decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle),
                   ),
                   const SizedBox(width: 8),
-                  const Text('Live Requests',
+                  const Text('Live Pings',
                       style: TextStyle(color: Color(0xFF0F172A), fontSize: 20, fontWeight: FontWeight.w900)),
                 ]),
                 const SizedBox(height: 2),
                 Text(
-                  'Customer Requests Near $_currentCityName',
+                  'Customer Pings Near $_currentCityName',
                   style: const TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w500),
                 ),
 
@@ -329,14 +336,14 @@ class _SellerScreenState extends State<SellerScreen> {
                 final matchingCats = _matchingCategories();
 
                 final requests = allRequests.where((r) {
-                  final statusOk = r['status'] == 'active' || r['status'] == 'matched';
+                  final statusOk = r['status'] == 'open' || r['status'] == 'active' || r['status'] == 'matched';
                   if (!statusOk) return false;
                   if (_showAll || matchingCats.isEmpty) return true;
                   return matchingCats.contains(r['category'] ?? '');
                 }).toList();
 
                 final totalActive = allRequests.where((r) =>
-                  r['status'] == 'active' || r['status'] == 'matched').length;
+                  r['status'] == 'open' || r['status'] == 'active' || r['status'] == 'matched').length;
                 final filteredOut = totalActive - requests.length;
 
                 bool playedHaptic = false;
@@ -345,7 +352,7 @@ class _SellerScreenState extends State<SellerScreen> {
                   final id = req['id'] as String;
                   final status = req['status'] as String;
                   currentStatuses[id] = status;
-                  if (status == 'matched' && _previousStatuses[id] == 'active' && !playedHaptic) {
+                  if (status == 'matched' && (_previousStatuses[id] == 'active' || _previousStatuses[id] == 'open') && !playedHaptic) {
                     HapticFeedback.heavyImpact();
                     playedHaptic = true;
                   }
@@ -357,14 +364,14 @@ class _SellerScreenState extends State<SellerScreen> {
                     const SizedBox(height: 60),
                     Center(
                       child: Column(children: [
-                        const Text('No matching requests right now.',
+                        const Text('No matching Pings right now.',
                             style: TextStyle(fontSize: 16, color: Color(0xFF64748B))),
                         if (filteredOut > 0) ...[
                           const SizedBox(height: 8),
                           GestureDetector(
                             onTap: () => setState(() => _showAll = true),
                             child: Text(
-                              'Show $filteredOut other request${filteredOut > 1 ? 's' : ''} outside your category',
+                              'Show $filteredOut other Ping${filteredOut > 1 ? 's' : ''} outside your category',
                               style: const TextStyle(fontSize: 13, color: Color(0xFF004D40),
                                   fontWeight: FontWeight.w600, decoration: TextDecoration.underline),
                             ),

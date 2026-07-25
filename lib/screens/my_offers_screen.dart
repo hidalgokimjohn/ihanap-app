@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 
@@ -104,7 +104,7 @@ class MyOffersScreen extends StatelessWidget {
                   statusColor = const Color(0xFF64748B);
                   statusBg    = const Color(0xFFF1F5F9);
                   statusIcon  = Icons.cancel_outlined;
-                } else if (reqStatus == 'active') {
+                } else if (reqStatus == 'active' || reqStatus == 'open') {
                   statusLabel = 'Pending';
                   statusColor = const Color(0xFFD97706);
                   statusBg    = const Color(0xFFFFFBEB);

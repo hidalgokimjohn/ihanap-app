@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import 'responder_registration_screen.dart';
 
@@ -93,7 +93,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'How do you plan to use iHanap today?\nYou can always switch or change this later.',
+                'How do you plan to use Ping today?\nYou can always switch or change this later.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,
@@ -115,7 +115,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                       _RoleCard(
                         emoji: '🛍️',
                         title: 'Buyer / Requester',
-                        subtitle: 'I want to post requests and get offers from nearby stores & helpers.',
+                        subtitle: 'I want to send Pings and get offers from nearby stores & helpers.',
                         badgeText: 'Most Popular',
                         badgeColor: const Color(0xFFE2F0F0),
                         badgeTextColor: const Color(0xFF004D40),

@@ -1,8 +1,9 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
-import '../widgets/request_bottom_sheet.dart';
 import '../widgets/notification_bell.dart';
+import 'create_request_cupertino_screen.dart';
 import 'seller_screen.dart';
 import 'my_requests_screen.dart';
 import 'account/account_center_screen.dart';
@@ -77,10 +78,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             end: Alignment.bottomRight,
           ).createShader(bounds),
           child: Text(
-            'iHanap',
+            'Ping',
             style: GoogleFonts.outfit(
               fontWeight: FontWeight.w900,
-              fontSize: 22,
+              fontSize: 24,
               letterSpacing: -0.8,
               color: Colors.white,
             ),
@@ -196,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                         const SizedBox(height: 16),
                         const Text(
-                          'Post what you need.\nNearby stores & helpers bid!',
+                          'Ping what you need.\nNearby stores & helpers bid!',
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
@@ -240,11 +241,39 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       dbCategory: 'Rooms & Boarding',
                     ),
                     _CategoryCard(
+                      title: 'Food & Catering',
+                      subtitle: 'Meals, Snacks, Catering',
+                      emoji: '🍽️',
+                      color: Color(0xFFFBE9E7),
+                      dbCategory: 'Food & Catering',
+                    ),
+                    _CategoryCard(
+                      title: 'Repair & Services',
+                      subtitle: 'Plumbing, Tech, Fixes',
+                      emoji: '🛠️',
+                      color: Color(0xFFEDE7F6),
+                      dbCategory: 'Repair & Services',
+                    ),
+                    _CategoryCard(
+                      title: 'General Store',
+                      subtitle: 'Groceries & Goods',
+                      emoji: '🏪',
+                      color: Color(0xFFE0F2F1),
+                      dbCategory: 'General Store',
+                    ),
+                    _CategoryCard(
                       title: 'Community Check',
-                      subtitle: 'Traffic & Queue Updates',
+                      subtitle: 'Traffic & Queue Live',
                       emoji: '📍',
                       color: Color(0xFFF3E5F5),
                       dbCategory: 'Community Updates',
+                    ),
+                    _CategoryCard(
+                      title: 'Community Helpers',
+                      subtitle: 'Emergency & Local Aid',
+                      emoji: '🚨',
+                      color: Color(0xFFFFEBEE),
+                      dbCategory: 'Community Helpers',
                     ),
                   ],
                 ),
@@ -263,11 +292,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           height: 52,
           child: ElevatedButton(
             onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (context) => const RequestBottomSheet(),
+              Navigator.of(context).push(
+                CupertinoPageRoute(
+                  builder: (_) => const CreateRequestCupertinoScreen(),
+                ),
               );
             },
             style: ElevatedButton.styleFrom(
@@ -282,10 +310,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text('➕ ', style: TextStyle(fontSize: 18)),
+                Icon(Icons.bolt_rounded, size: 22, color: Color(0xFFFF8C42)),
+                SizedBox(width: 8),
                 Text(
-                  'i-Hanap Mo Ako Today',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  'Send Ping',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: -0.2),
                 ),
               ],
             ),
@@ -317,7 +346,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             BottomNavigationBarItem(
               icon: Icon(Icons.receipt_long_outlined),
               activeIcon: Icon(Icons.receipt_long),
-              label: 'My Requests',
+              label: 'My Pings',
             ),
           ],
         ),
@@ -362,12 +391,11 @@ class _CategoryCard extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const CommunityCheckScreen()));
               return;
             }
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (context) => RequestBottomSheet(
-                initialCategory: dbCategory,
+            Navigator.of(context).push(
+              CupertinoPageRoute(
+                builder: (_) => CreateRequestCupertinoScreen(
+                  initialCategory: dbCategory,
+                ),
               ),
             );
           },

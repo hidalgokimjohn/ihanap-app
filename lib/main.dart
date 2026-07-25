@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'screens/splash_screen.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/role_selection_screen.dart';
+import 'screens/seller_screen.dart';
 import 'services/auth_service.dart';
 
 Future<void> main() async {
@@ -21,7 +23,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'iHanap',
+      title: 'Ping',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -65,7 +67,7 @@ class MyApp extends StatelessWidget {
         cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 4,
-          shadowColor: Colors.black.withOpacity(0.4),
+          shadowColor: Colors.black.withValues(alpha: 0.4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
@@ -83,43 +85,70 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: StreamBuilder<AuthState>(
-        stream: Supabase.instance.client.auth.onAuthStateChange,
-        builder: (context, snapshot) {
-          final session = snapshot.data?.session ?? Supabase.instance.client.auth.currentSession;
-          if (session != null) {
-            return const ProfileGate();
-          }
-          return const AuthScreen();
-        },
-      ),
+      home: const LoadingSplashScreen(),
     );
   }
 }
 
-class ProfileGate extends StatefulWidget {
-  const ProfileGate({super.key});
+class AppStartupGate extends StatefulWidget {
+  const AppStartupGate({super.key});
 
   @override
-  State<ProfileGate> createState() => _ProfileGateState();
+  State<AppStartupGate> createState() => _AppStartupGateState();
 }
 
-class _ProfileGateState extends State<ProfileGate> {
+class _AppStartupGateState extends State<AppStartupGate> {
   bool _isLoading = true;
-  bool _hasRole = false;
+  Widget? _initialScreen;
 
   @override
   void initState() {
     super.initState();
-    _checkProfile();
+    _determineInitialScreen();
   }
 
-  Future<void> _checkProfile() async {
-    final profile = await AuthService.getProfile();
-    final role = profile?['primary_role'];
+  Future<void> _determineInitialScreen() async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      if (mounted) {
+        setState(() {
+          _initialScreen = const AuthScreen();
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      final profile = await AuthService.getProfile().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
+      final role = profile?['primary_role'];
+
+      if (!mounted) return;
+
+      if (role == 'responder') {
+        _initialScreen = const SellerScreen();
+      } else if (role == 'buyer') {
+        _initialScreen = const HomeScreen();
+      } else {
+        _initialScreen = RoleSelectionScreen(
+          onRoleSelected: () {
+            if (mounted) {
+              setState(() {
+                _initialScreen = const HomeScreen();
+              });
+            }
+          },
+        );
+      }
+    } catch (_) {
+      _initialScreen = const AuthScreen();
+    }
+
     if (mounted) {
       setState(() {
-        _hasRole = role != null && role.toString().isNotEmpty;
         _isLoading = false;
       });
     }
@@ -127,25 +156,15 @@ class _ProfileGateState extends State<ProfileGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_isLoading || _initialScreen == null) {
       return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
         body: Center(
           child: CircularProgressIndicator(color: Color(0xFF004D40)),
         ),
       );
     }
-
-    if (!_hasRole) {
-      return RoleSelectionScreen(
-        onRoleSelected: () {
-          setState(() {
-            _hasRole = true;
-          });
-        },
-      );
-    }
-
-    return const HomeScreen();
+    return _initialScreen!;
   }
 }
 

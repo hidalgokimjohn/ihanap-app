@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import '../widgets/order_summary_sheet.dart';
@@ -59,7 +59,7 @@ class MyRequestsScreen extends StatelessWidget {
             'reference_id': request['id'],
           });
         }
-
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Row(children: [
@@ -84,14 +84,14 @@ class MyRequestsScreen extends StatelessWidget {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Cancel this request?', style: TextStyle(fontWeight: FontWeight.w800)),
-        content: const Text('This will remove your request from the live feed.'),
+        title: const Text('Cancel this Ping?', style: TextStyle(fontWeight: FontWeight.w800)),
+        content: const Text('This will remove your Ping from the live feed and notify active merchants.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep it')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep Active')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            child: const Text('Cancel Request'),
+            child: const Text('Cancel Ping'),
           ),
         ],
       ),
@@ -153,10 +153,10 @@ class MyRequestsScreen extends StatelessWidget {
                   child: const Icon(Icons.search_off_rounded, size: 48, color: Color(0xFF94A3B8)),
                 ),
                 const SizedBox(height: 16),
-                const Text('No requests yet',
+                const Text('No active Pings yet',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
                 const SizedBox(height: 6),
-                const Text('Tap the button below to post\nyour first request!',
+                const Text('Tap the button below to send\nyour first Ping!',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
               ],
@@ -189,6 +189,7 @@ class RequestWithOffersCard extends StatelessWidget {
   final String timeAgo;
 
   const RequestWithOffersCard({
+    super.key,
     required this.request,
     required this.onAccept,
     required this.onCancel,
@@ -226,7 +227,7 @@ class RequestWithOffersCard extends StatelessWidget {
     final category    = request['category'] ?? '';
     final maxBudget   = (request['max_budget'] ?? 0).toDouble();
     final acceptedId  = request['accepted_offer_id'];
-    final isOpen      = status == 'active';
+    final isOpen      = status == 'active' || status == 'open';
     final isMatched   = status == 'matched';
 
     return Card(
@@ -284,7 +285,7 @@ class RequestWithOffersCard extends StatelessWidget {
               Text(timeAgo, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
             ]),
 
-            // Cancel button for open requests
+            // Cancel button for open Pings
             if (isOpen) ...[
               const SizedBox(height: 8),
               Align(
@@ -292,8 +293,8 @@ class RequestWithOffersCard extends StatelessWidget {
                 child: TextButton.icon(
                   onPressed: onCancel,
                   icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.redAccent),
-                  label: const Text('Cancel Request',
-                      style: TextStyle(fontSize: 12, color: Colors.redAccent)),
+                  label: const Text('Cancel Ping',
+                      style: TextStyle(fontSize: 12, color: Colors.redAccent, fontWeight: FontWeight.w600)),
                   style: TextButton.styleFrom(padding: EdgeInsets.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 ),
               ),

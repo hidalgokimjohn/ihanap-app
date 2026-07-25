@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 
@@ -99,7 +99,7 @@ class _OfferBottomSheetState extends State<OfferBottomSheet> {
         await Supabase.instance.client.from('notifications').insert({
           'user_id': requestOwnerId,
           'title': 'New Offer Received',
-          'body': '$shopName sent an offer of ₱${price.toStringAsFixed(0)} for your request.',
+          'body': '$shopName sent an offer of ₱${price.toStringAsFixed(0)} for your Ping!',
           'type': 'new_offer',
           'reference_id': widget.requestId,
         });
@@ -195,7 +195,7 @@ class _OfferBottomSheetState extends State<OfferBottomSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Customer Request', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                    const Text('Customer Ping', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     Text(_description, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
                     if (_maxBudget > 0) ...[

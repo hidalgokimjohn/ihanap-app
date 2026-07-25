@@ -1,6 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
+import 'splash_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -70,8 +71,13 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     setState(() => _isLoading = true);
 
     try {
-      await AuthService.signIn(email: email, password: password);
-      // Navigation is handled automatically by main.dart listening to authStateChanges
+      final res = await AuthService.signIn(email: email, password: password);
+      if (res.session != null && mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoadingSplashScreen()),
+          (route) => false,
+        );
+      }
     } on AuthException catch (e) {
       _showSnackBar(e.message);
     } catch (e) {
@@ -115,7 +121,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     setState(() => _isLoading = true);
 
     try {
-      await AuthService.signUp(
+      final response = await AuthService.signUp(
         email: email,
         password: password,
         fullName: fullName,
@@ -127,7 +133,17 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
         tagline: tagline,
       );
 
-      _showSnackBar('Account created successfully!', isSuccess: true);
+      final currentSession = Supabase.instance.client.auth.currentSession ?? response.session;
+      if (currentSession != null && mounted) {
+        _showSnackBar('Account created! Welcome to Ping.', isSuccess: true);
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoadingSplashScreen()),
+          (route) => false,
+        );
+      } else {
+        _showSnackBar('Account created! Please sign in with your email and password.', isSuccess: true);
+        _tabController.animateTo(1); // Auto switch to Sign In tab
+      }
     } on AuthException catch (e) {
       _showSnackBar(e.message);
     } catch (e) {
@@ -184,7 +200,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                       ),
                       const SizedBox(width: 10),
                       const Text(
-                        'iHanap',
+                        'Ping',
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.w900,
@@ -196,7 +212,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Connect directly with local shops & services in Butuan City',
+                    'Broadcast to local shops in seconds.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
                   ),
@@ -254,7 +270,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                   roleId: 'buyer',
                   emoji: '🛍️',
                   title: 'I want to Buy',
-                  subtitle: 'Post requests & find items',
+                  subtitle: 'Send Pings & find items',
                 ),
               ),
               const SizedBox(width: 12),

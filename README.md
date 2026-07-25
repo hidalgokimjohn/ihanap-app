@@ -1,3 +1,2 @@
-# ihanap
-
-A new Flutter project.
+# Ping
+Broadcast to local shops in seconds.
