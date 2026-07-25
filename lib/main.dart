@@ -25,6 +25,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
+        fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
         scaffoldBackgroundColor: const Color(0xFFF8FAFC), // Cool Off-White
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF004D40), // Deep Community Teal
@@ -33,7 +34,28 @@ class MyApp extends StatelessWidget {
           surface: const Color(0xFFF8FAFC),
           onSurface: const Color(0xFF0F172A), // Dark slate for text
         ),
-        textTheme: GoogleFonts.interTextTheme(),
+        textTheme: GoogleFonts.plusJakartaSansTextTheme().copyWith(
+          // ── Display ─────────────────────────────────────────
+          displayLarge:  GoogleFonts.plusJakartaSans(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -1.0, height: 1.1,  color: const Color(0xFF0F172A)),
+          displayMedium: GoogleFonts.plusJakartaSans(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.8, height: 1.1,  color: const Color(0xFF0F172A)),
+          displaySmall:  GoogleFonts.plusJakartaSans(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: -0.4, height: 1.15, color: const Color(0xFF0F172A)),
+          // ── Headlines ───────────────────────────────────
+          headlineLarge:  GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.3, height: 1.2, color: const Color(0xFF0F172A)),
+          headlineMedium: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: -0.2, height: 1.2, color: const Color(0xFF0F172A)),
+          headlineSmall:  GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing:  0,   height: 1.25, color: const Color(0xFF0F172A)),
+          // ── Title ───────────────────────────────────────────
+          titleLarge:  GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0,   height: 1.3, color: const Color(0xFF1E293B)),
+          titleMedium: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.1, height: 1.3, color: const Color(0xFF1E293B)),
+          titleSmall:  GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.1, height: 1.3, color: const Color(0xFF334155)),
+          // ── Body ────────────────────────────────────────────
+          bodyLarge:  GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w400, letterSpacing: 0, height: 1.45, color: const Color(0xFF334155)),
+          bodyMedium: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w400, letterSpacing: 0, height: 1.45, color: const Color(0xFF475569)),
+          bodySmall:  GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.w400, letterSpacing: 0, height: 1.4,  color: const Color(0xFF64748B)),
+          // ── Label ────────────────────────────────────────────
+          labelLarge:  GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.2, height: 1.1, color: const Color(0xFF0F172A)),
+          labelMedium: GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.3, height: 1.1, color: const Color(0xFF334155)),
+          labelSmall:  GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 0.5, height: 1.1, color: const Color(0xFF64748B)),
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFFF8FAFC),
           foregroundColor: Color(0xFF0F172A),
@@ -55,8 +77,8 @@ class MyApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 56), // Premium touch target
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            minimumSize: const Size(double.infinity, 44),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 0,
           ),
         ),

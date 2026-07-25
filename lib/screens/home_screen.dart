@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import '../widgets/request_bottom_sheet.dart';
@@ -6,6 +6,7 @@ import '../widgets/notification_bell.dart';
 import 'seller_screen.dart';
 import 'my_requests_screen.dart';
 import 'account/account_center_screen.dart';
+import 'community_check_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -79,8 +80,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             'iHanap',
             style: GoogleFonts.outfit(
               fontWeight: FontWeight.w900,
-              fontSize: 28,
-              letterSpacing: -1.0,
+              fontSize: 22,
+              letterSpacing: -0.8,
               color: Colors.white,
             ),
           ),
@@ -123,9 +124,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             slivers: [
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.all(24.0),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: Container(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
@@ -193,11 +194,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ],
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
                         const Text(
                           'Post what you need.\nNearby stores & helpers bid!',
                           style: TextStyle(
-                            fontSize: 28,
+                            fontSize: 20,
                             fontWeight: FontWeight.w800,
                             height: 1.2,
                             letterSpacing: -0.5,
@@ -210,12 +211,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
               ),
               SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 sliver: SliverGrid.count(
                   crossAxisCount: 2,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 0.85,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 1.05,
                   children: const [
                     _CategoryCard(
                       title: 'Parts & Hardware',
@@ -248,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ],
                 ),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: 120)),
+              const SliverToBoxAdapter(child: SizedBox(height: 90)),
             ],
           ),
           // ── Tab 1: My Requests ──────────────────────────────────────
@@ -356,6 +357,11 @@ class _CategoryCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
+            if (dbCategory == 'Community Updates') {
+              Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const CommunityCheckScreen()));
+              return;
+            }
             showModalBottomSheet(
               context: context,
               isScrollControlled: true,
@@ -366,19 +372,19 @@ class _CategoryCard extends StatelessWidget {
             );
           },
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 48,
-                  height: 48,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: color,
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                  child: Text(emoji, style: const TextStyle(fontSize: 18)),
                 ),
                 const Spacer(),
                 Text(
@@ -386,15 +392,15 @@ class _CategoryCard extends StatelessWidget {
                   style: const TextStyle(
                     color: Color(0xFF0F172A),
                     fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                    fontSize: 13,
                     height: 1.2,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     color: Color(0xFF64748B),
                     fontWeight: FontWeight.w500,
                   ),
