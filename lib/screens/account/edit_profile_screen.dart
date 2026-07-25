@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth_service.dart';
 
@@ -63,18 +63,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     
     setState(() => _isSaving = true);
     try {
-      await Supabase.instance.client.from('profiles').update({
+      final updates = {
         'full_name': _nameController.text.trim(),
         'contact_number': _contactController.text.trim(),
         'barangay': _selectedBarangay,
-      }).eq('id', AuthService.currentUserId!);
-      
+      };
+
+      await AuthService.updateProfile(updates);
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated successfully!')));
-        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile updated successfully!'),
+            backgroundColor: Color(0xFF004D40),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        Navigator.pop(context, true);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving profile: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -83,7 +95,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text('Edit Profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         backgroundColor: Colors.white,
@@ -98,50 +110,74 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Full Name',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.person_outline),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 20),
-                  TextFormField(
-                    controller: _contactController,
-                    decoration: const InputDecoration(
-                      labelText: 'Contact Number',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.phone_outlined),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Personal Information',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Update your primary details for Ping requests and offers.',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                        const SizedBox(height: 20),
+                        TextFormField(
+                          controller: _nameController,
+                          decoration: InputDecoration(
+                            labelText: 'Full Name *',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF004D40)),
+                          ),
+                          validator: (val) => val == null || val.trim().isEmpty ? 'Please enter your name' : null,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _contactController,
+                          decoration: InputDecoration(
+                            labelText: 'Contact Number',
+                            hintText: 'e.g. 09171234567',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            prefixIcon: const Icon(Icons.phone_outlined, color: Color(0xFF004D40)),
+                          ),
+                          keyboardType: TextInputType.phone,
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedBarangay,
+                          decoration: InputDecoration(
+                            labelText: 'Barangay (Butuan City)',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            prefixIcon: const Icon(Icons.location_on_outlined, color: Color(0xFF004D40)),
+                          ),
+                          items: _barangays.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _selectedBarangay = val);
+                          },
+                        ),
+                      ],
                     ),
-                    keyboardType: TextInputType.phone,
                   ),
-                  const SizedBox(height: 20),
-                  DropdownButtonFormField<String>(
-                    value: _selectedBarangay,
-                    decoration: const InputDecoration(
-                      labelText: 'Barangay (Butuan City)',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.map_outlined),
-                    ),
-                    items: _barangays.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedBarangay = val);
-                    },
-                  ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 32),
                   ElevatedButton(
                     onPressed: _isSaving ? null : _saveProfile,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF004D40),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
                     child: _isSaving 
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('Save Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      : const Text('Save Profile Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
