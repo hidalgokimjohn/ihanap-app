@@ -1,4 +1,6 @@
-﻿import 'dart:math';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -197,6 +199,79 @@ class _LiveOffersScreenState extends State<LiveOffersScreen> with SingleTickerPr
                 ),
               ],
             ),
+          ),
+
+          // Request Summary Banner
+          FutureBuilder<Map<String, dynamic>?>(
+            future: Supabase.instance.client
+                .from('requests')
+                .select()
+                .eq('id', widget.requestId)
+                .maybeSingle(),
+            builder: (context, reqSnap) {
+              if (!reqSnap.hasData || reqSnap.data == null) {
+                return const SizedBox.shrink();
+              }
+              final req = reqSnap.data!;
+              final category = req['category'] ?? 'Request';
+              final subCat = req['sub_category'] ?? '';
+              final desc = req['description'] ?? '';
+              
+              Map<String, dynamic> tags = {};
+              try {
+                final raw = req['tags'];
+                if (raw is String && raw.isNotEmpty) tags = jsonDecode(raw);
+                else if (raw is Map) tags = Map<String, dynamic>.from(raw);
+              } catch (_) {}
+              
+              final spec1 = tags['spec_1'] ?? tags['vehicle_model'] ?? '';
+              final spec2 = tags['spec_2'] ?? tags['part_spec'] ?? '';
+
+              return Container(
+                margin: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: const Color(0xFFE2F0F0), borderRadius: BorderRadius.circular(6)),
+                          child: Text(
+                            subCat.isNotEmpty ? '$category • $subCat' : category,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF004D40)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(desc, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                    if (spec1.isNotEmpty || spec2.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (spec1.isNotEmpty)
+                            Flexible(
+                              child: Text('🔧 $spec1', style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
+                            ),
+                          if (spec1.isNotEmpty && spec2.isNotEmpty) const SizedBox(width: 12),
+                          if (spec2.isNotEmpty)
+                            Flexible(
+                              child: Text('⚙️ $spec2', style: const TextStyle(fontSize: 12, color: Color(0xFFEA580C), fontWeight: FontWeight.w600)),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
           ),
           Expanded(
             child: StreamBuilder<List<Map<String, dynamic>>>(

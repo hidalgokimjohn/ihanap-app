@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/live_offers_screen.dart';
@@ -16,7 +16,8 @@ class RequestBottomSheet extends StatefulWidget {
 class _RequestBottomSheetState extends State<RequestBottomSheet> {
   final _descriptionController = TextEditingController();
   final _budgetController = TextEditingController();
-  final _vehicleModelController = TextEditingController(); // For Auto
+  final _vehicleModelController = TextEditingController(); // Make / Model / Spec 1
+  final _partSpecController = TextEditingController(); // Spec / Placement / Spec 2
   
   late String _fulfillmentType;
   late String _category;
@@ -140,19 +141,83 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
 
   Widget _buildConditionalFields() {
     if (_category == 'Parts & Hardware') {
+      String label1 = 'Make / Model / Equipment';
+      String hint1 = 'e.g. 2023 Toyota Wigo / Honda Click';
+      
+      String label2 = 'Specific Specs / Dimensions / Brand';
+      String hint2 = 'e.g. Front Right Brake Pad, 1/2" Pipe, Boysen White';
+
+      final sub = _selectedSubCategory ?? '';
+
+      if (sub.contains('Car') || sub.contains('Motorcycle')) {
+        label1 = 'Vehicle Make, Model & Year';
+        hint1 = sub.contains('Car') ? 'e.g. 2022 Toyota Vios 1.3 XLE' : 'e.g. 2020 Honda Click 125i';
+        label2 = 'Part Position / Specific Specs';
+        hint2 = 'e.g. Front Right Brake Pads / Rear Shock';
+      } else if (sub.contains('Battery') || sub.contains('Tires')) {
+        label1 = 'Vehicle / Device Model';
+        hint1 = 'e.g. 2019 Honda City / Yamaha NMAX';
+        label2 = 'Battery Code / Tire Size Specs';
+        hint2 = 'e.g. Size 185/65 R15 or NS40 (36B20L)';
+      } else if (sub.contains('Oil') || sub.contains('Fluids')) {
+        label1 = 'Viscosity / Fluid Type';
+        hint1 = 'e.g. Fully Synthetic 5W-30 / DOT4 Brake Fluid';
+        label2 = 'Volume / Quantity Needed';
+        hint2 = 'e.g. 4 Liters / 1 Gallon';
+      } else if (sub.contains('Plumbing')) {
+        label1 = 'Pipe & Fitting Specs';
+        hint1 = 'e.g. 1/2" Blue PVC Pipe / 3/4" Male Adapter';
+        label2 = 'Brand / Rating / Length';
+        hint2 = 'e.g. Neltex / Schedule 40 / 3 Meters';
+      } else if (sub.contains('Electrical')) {
+        label1 = 'Wire Gauge / Ampere / Voltage';
+        hint1 = 'e.g. #12 THHN Wire / 220V 30A Circuit Breaker';
+        label2 = 'Brand / Fixture Type';
+        hint2 = 'e.g. Royu / Panasonic / LED Bulb 12W';
+      } else if (sub.contains('Paint') || sub.contains('Cement')) {
+        label1 = 'Brand, Color & Finish';
+        hint1 = 'e.g. Boysen Permacoat Flat White';
+        label2 = 'Quantity / Weight';
+        hint2 = 'e.g. 1 Gallon / 40kg Bag';
+      } else if (sub.contains('Tools')) {
+        label1 = 'Tool Type & Power / Drive';
+        hint1 = 'e.g. Cordless Impact Driver 20V / 1/2" Socket Wrench';
+        label2 = 'Brand Preference / Grade';
+        hint2 = 'e.g. Bosch / Heavy Duty Industrial';
+      }
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Vehicle Model & Year',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+          Text(
+            label1,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _vehicleModelController,
             style: const TextStyle(fontSize: 14),
             decoration: InputDecoration(
-              hintText: 'e.g. 2023 Toyota Wigo',
+              hintText: hint1,
+              hintStyle: TextStyle(color: Colors.grey[400]),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Text(
+            label2,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _partSpecController,
+            style: const TextStyle(fontSize: 14),
+            decoration: InputDecoration(
+              hintText: hint2,
               hintStyle: TextStyle(color: Colors.grey[400]),
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -270,8 +335,15 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
     }
 
     Map<String, dynamic> tags = {};
-    if (_category == 'Parts & Hardware' && _vehicleModelController.text.trim().isNotEmpty) {
-      tags['vehicle_model'] = _vehicleModelController.text.trim();
+    if (_category == 'Parts & Hardware') {
+      if (_vehicleModelController.text.trim().isNotEmpty) {
+        tags['vehicle_model'] = _vehicleModelController.text.trim();
+        tags['spec_1'] = _vehicleModelController.text.trim();
+      }
+      if (_partSpecController.text.trim().isNotEmpty) {
+        tags['part_spec'] = _partSpecController.text.trim();
+        tags['spec_2'] = _partSpecController.text.trim();
+      }
     }
     if (_category == 'Rooms & Boarding') {
       tags['aircon_preferred'] = _airconPreferred;

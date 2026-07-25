@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import '../screens/my_requests_screen.dart';
@@ -42,7 +42,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final type = note['type'];
 
     if (type == 'new_offer') {
-      // Requesters jump to their requests feed
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => Scaffold(
           appBar: AppBar(
@@ -57,7 +56,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
 
     if (type == 'offer_accepted') {
-      // Merchants see the order summary for the accepted request
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -71,7 +69,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             .eq('id', referenceId)
             .maybeSingle();
 
-        if (mounted) Navigator.pop(context); // pop loading
+        if (mounted) Navigator.pop(context);
 
         if (request == null) {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request not found.')));
@@ -87,10 +85,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
       } catch (e) {
         if (mounted) {
-          Navigator.pop(context); // pop loading
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
         }
       }
+      return;
+    }
+
+    if (type == 'check_response' || type == 'tip_received') {
+      Navigator.of(context).pop();
+      return;
     }
   }
 
@@ -172,6 +176,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               } else if (type == 'offer_accepted') {
                 iconStr = '🎉';
                 iconBg = const Color(0xFFD1FAE5);
+              } else if (type == 'check_response') {
+                iconStr = '💬';
+                iconBg = const Color(0xFFFEF3C7);
+              } else if (type == 'tip_received') {
+                iconStr = '⭐';
+                iconBg = const Color(0xFFFEF3C7);
               }
 
               return GestureDetector(

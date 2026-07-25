@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
+import '../utils/user_masking_helper.dart';
 import '../widgets/community_check_bottom_sheet.dart';
 
 class CommunityCheckScreen extends StatelessWidget {
@@ -88,6 +90,100 @@ class _CheckCard extends StatefulWidget {
 }
 
 class _CheckCardState extends State<_CheckCard> {
+
+  Future<void> _acceptAndTip(Map<String, dynamic> response) async {
+    final tipCtrl = TextEditingController();
+    final amount = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reward Responder'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Enter the tip amount to send (₱):', style: TextStyle(fontSize: 14)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: tipCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                prefixText: '₱ ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              final val = int.tryParse(tipCtrl.text.trim());
+              if (val != null && val > 0) {
+                Navigator.pop(ctx, val);
+              }
+            },
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF004D40)),
+            child: const Text('Proceed to Payment'),
+          ),
+        ],
+      ),
+    );
+
+    if (amount == null || !mounted) return;
+
+    try {
+      // 1. Update the database directly so status becomes 'paid' immediately for testing
+      await Supabase.instance.client.from('community_check_responses').update({
+        'payment_status': 'paid',
+        'is_accepted': true,
+        'tip_amount': amount,
+      }).eq('id', response['id']);
+
+      // 2. Send notification to responder
+      try {
+        final responderId = response['user_id'];
+        if (responderId != null) {
+          await Supabase.instance.client.from('notifications').insert({
+            'user_id': responderId,
+            'title': 'You received a tip!',
+            'body': 'Your community check response was accepted and you were rewarded ₱$amount!',
+            'type': 'tip_received',
+            'reference_id': widget.check['id'],
+          });
+        }
+      } catch (err) {
+        debugPrint('Failed to send tip notification: $err');
+      }
+
+      // 3. Try to open PayMongo sandbox checkout URL as well
+      try {
+        final res = await Supabase.instance.client.functions.invoke(
+          'paymongo-checkout',
+          body: {'responseId': response['id'], 'amount': amount},
+        );
+        final data = res.data;
+        if (data != null && data['checkout_url'] != null) {
+          final url = Uri.parse(data['checkout_url']);
+          if (await canLaunchUrl(url)) {
+            await launchUrl(url, mode: LaunchMode.externalApplication);
+          }
+        }
+      } catch (_) {}
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Payment completed! Tipped ₱$amount to responder.'),
+            backgroundColor: const Color(0xFF004D40),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
   static const _expiryMinutes = 15;
   Timer? _timer;
   Duration _remaining = Duration.zero;
@@ -157,17 +253,27 @@ class _CheckCardState extends State<_CheckCard> {
     final bounty      = (widget.check['bounty']     ?? 0).toDouble();
     final photoUrl    = widget.check['photo_url']   as String?;
 
-    return AnimatedOpacity(
-      opacity: _isExpired ? 0.3 : 1.0,
-      duration: const Duration(milliseconds: 800),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('community_check_responses')
+          .stream(primaryKey: ['id'])
+          .eq('check_id', widget.check['id'])
+          .order('created_at', ascending: true),
+      builder: (context, snapshot) {
+        final responses = snapshot.data ?? [];
+        final isResolved = responses.any((r) => r['is_accepted'] == true && r['payment_status'] == 'paid');
+
+        return AnimatedOpacity(
+          opacity: _isExpired ? 0.3 : 1.0,
+          duration: const Duration(milliseconds: 800),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: _isExpired ? const Color(0xFFE2E8F0) : bgColor,
-            width: _isExpired ? 1 : 1.5,
+            color: isResolved ? const Color(0xFF10B981) : (_isExpired ? const Color(0xFFE2E8F0) : bgColor),
+            width: isResolved ? 1.5 : (_isExpired ? 1 : 1.5),
           ),
           boxShadow: _isExpired ? [] : [
             BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 12, offset: const Offset(0, 4)),
@@ -215,7 +321,14 @@ class _CheckCardState extends State<_CheckCard> {
                       ]),
                     ),
                     const Spacer(),
-                    if (_isExpired)
+                    if (isResolved)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: const Color(0xFFD1FAE5), borderRadius: BorderRadius.circular(8)),
+                        child: const Text('RESOLVED',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF059669))),
+                      )
+                    else if (_isExpired)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(8)),
@@ -236,6 +349,34 @@ class _CheckCardState extends State<_CheckCard> {
                           )),
                       ]),
                   ]),
+                  const SizedBox(height: 6),
+
+                  // Poster Identity & Time Posted
+                  FutureBuilder<Map<String, dynamic>?>(
+                    future: UserMaskingHelper.getProfile(widget.check['user_id']),
+                    builder: (context, profileSnap) {
+                      final profile = profileSnap.data;
+                      final maskedName = UserMaskingHelper.maskName(profile?['full_name']);
+                      final badge = UserMaskingHelper.getRoleBadge(profile?['primary_role']);
+                      final timeAgo = UserMaskingHelper.timeAgo(widget.check['created_at']);
+
+                      return Row(
+                        children: [
+                          const Icon(Icons.person_outline, size: 12, color: Color(0xFF64748B)),
+                          const SizedBox(width: 3),
+                          Text(
+                            '$maskedName • $badge',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'Posted $timeAgo',
+                            style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
                   const SizedBox(height: 8),
 
                   Row(children: [
@@ -251,7 +392,7 @@ class _CheckCardState extends State<_CheckCard> {
                   ],
 
                   // Progress bar
-                  if (!_isExpired) ...[
+                  if (!_isExpired && !isResolved) ...[
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
@@ -284,7 +425,7 @@ class _CheckCardState extends State<_CheckCard> {
                   ],
 
                   // ── Responder Action ─────────────────────────────────────
-                  if (!_isExpired) ...[
+                  if (!_isExpired && !isResolved && AuthService.currentUserId != widget.check['user_id']) ...[
                     const SizedBox(height: 12),
                     const Divider(height: 1, color: Color(0xFFE2E8F0)),
                     const SizedBox(height: 8),
@@ -304,12 +445,150 @@ class _CheckCardState extends State<_CheckCard> {
                       ),
                     ),
                   ],
+
+                  // ── Responses List ─────────────────────────────────────────
+                  if (responses.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                    const SizedBox(height: 8),
+                    Text('COMMUNITY RESPONSES (' + '${responses.length}' + ')', 
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: Color(0xFF94A3B8))),
+                    const SizedBox(height: 8),
+                    ...responses.map((resp) {
+                      final statusStr = resp['status'] as String? ?? '';
+                      String emoji = '💬';
+                      Color sColor = const Color(0xFF64748B);
+                      if (statusStr == 'confirmed') { emoji = '✅'; sColor = const Color(0xFF059669); }
+                      if (statusStr == 'worsening') { emoji = '⚠️'; sColor = const Color(0xFFDC2626); }
+                      if (statusStr == 'cleared')   { emoji = '🎉'; sColor = const Color(0xFF2563EB); }
+                      
+                      final msg = resp['message'] as String? ?? '';
+                      final paymentStatus = resp['payment_status'] as String? ?? 'none';
+                      final isAccepted = resp['is_accepted'] == true && paymentStatus == 'paid';
+                      final isPending = paymentStatus == 'pending';
+                      final tipAmount = resp['tip_amount'] ?? 0;
+                      final isPoster = AuthService.currentUserId == widget.check['user_id'];
+                      
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isAccepted ? const Color(0xFFFFFBEB) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isAccepted ? const Color(0xFFFDE68A) : const Color(0xFFF1F5F9),
+                            width: isAccepted ? 1.5 : 1.0,
+                          )
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Responder Identity & Time Ago
+                            FutureBuilder<Map<String, dynamic>?>(
+                              future: UserMaskingHelper.getProfile(resp['user_id']),
+                              builder: (context, rProfileSnap) {
+                                final rProfile = rProfileSnap.data;
+                                final rMaskedName = UserMaskingHelper.maskName(rProfile?['full_name']);
+                                final rBadge = UserMaskingHelper.getRoleBadge(rProfile?['primary_role']);
+                                final rTimeAgo = UserMaskingHelper.timeAgo(resp['created_at']);
+
+                                return Row(
+                                  children: [
+                                    Text('$rMaskedName • $rBadge', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+                                    const Spacer(),
+                                    Text(rTimeAgo, style: const TextStyle(fontSize: 9, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500)),
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 6),
+
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(emoji, style: const TextStyle(fontSize: 14)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(statusStr.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: sColor)),
+                                      if (msg.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(msg, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                                      ]
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            
+                            if (isAccepted) ...[
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text('⭐', style: TextStyle(fontSize: 10)),
+                                    const SizedBox(width: 4),
+                                    Text('Rewarded ₱' + '${tipAmount}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFB45309))),
+                                  ],
+                                ),
+                              )
+                            ] else if (isPending) ...[
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2)),
+                                    const SizedBox(width: 6),
+                                    Text('Payment Pending ₱' + '${tipAmount}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF64748B))),
+                                  ],
+                                ),
+                              )
+                            ] else if (isPoster && !_isExpired && !isResolved) ...[
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: () => _acceptAndTip(resp),
+                                  icon: const Icon(Icons.stars, size: 14),
+                                  label: const Text('Accept & Tip', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: const Color(0xFFD97706),
+                                    backgroundColor: const Color(0xFFFEF3C7),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                              )
+                            ]
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
                 ],
               ),
             ),
           ],
         ),
       ),
+    );
+      },
     );
   }
 }
@@ -347,6 +626,26 @@ class _ResponderSheetState extends State<_ResponderSheet> {
         'status':    _status,
         'message':   _msgCtrl.text.trim(),
       });
+
+      // Send notification to the poster (always send so testing works even on own posts)
+      try {
+        final posterId = widget.check['user_id'] ?? userId;
+        final landmark = widget.check['landmark'] ?? 'a location';
+        final statusLabel = (_statuses.firstWhere(
+          (s) => s['key'] == _status,
+          orElse: () => {'label': _status},
+        )['label'] as String);
+
+        await Supabase.instance.client.from('notifications').insert({
+          'user_id': posterId,
+          'title': 'New Update on your Community Check',
+          'body': 'Someone reported "$statusLabel" near $landmark.',
+          'type': 'check_response',
+          'reference_id': widget.check['id'],
+        });
+      } catch (err) {
+        debugPrint('Failed to send notification: $err');
+      }
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(

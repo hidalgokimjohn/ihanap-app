@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OrderSummarySheet extends StatefulWidget {
@@ -27,15 +27,40 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
   Future<void> _fetchDetails() async {
     try {
       final supabase = Supabase.instance.client;
-      final offerId = widget.request['accepted_offer_id'];
-      
-      if (offerId == null) {
-        throw Exception('No accepted offer found for this request.');
+      var offerId = widget.request['accepted_offer_id'];
+      Map<String, dynamic>? offerRes;
+
+      if (offerId != null) {
+        offerRes = await supabase.from('offers').select().eq('id', offerId).maybeSingle();
       }
 
-      // Fetch Offer
-      final offerRes = await supabase.from('offers').select().eq('id', offerId).maybeSingle();
-      if (offerRes == null) throw Exception('Offer not found.');
+      // Fallback: If accepted_offer_id wasn't set or offer not found by ID, look up offer by request_id
+      if (offerRes == null) {
+        final reqId = widget.request['id'];
+        if (reqId != null) {
+          offerRes = await supabase
+              .from('offers')
+              .select()
+              .eq('request_id', reqId)
+              .order('created_at', ascending: false)
+              .limit(1)
+              .maybeSingle();
+
+          if (offerRes != null) {
+            // Auto-repair accepted_offer_id on request record
+            try {
+              await supabase.from('requests').update({
+                'accepted_offer_id': offerRes['id'],
+                'status': 'matched',
+              }).eq('id', reqId);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (offerRes == null) {
+        throw Exception('No accepted offer found for this request.');
+      }
       _offer = offerRes;
 
       // Fetch Buyer Profile (Requester)

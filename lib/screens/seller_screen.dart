@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -520,7 +520,8 @@ class _RequestCard extends StatelessWidget {
       else if (raw is Map) tags = Map<String, dynamic>.from(raw);
     } catch (_) {}
 
-    final vehicleModel    = tags['vehicle_model'] ?? '';
+    final vehicleModel    = tags['vehicle_model'] ?? tags['spec_1'] ?? '';
+    final partSpec        = tags['part_spec'] ?? tags['spec_2'] ?? '';
     final airconPreferred = tags['aircon_preferred'] == true;
 
     String distanceLabel = '?? 1.2 km';
@@ -599,13 +600,34 @@ class _RequestCard extends StatelessWidget {
                 Text(description,
                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), height: 1.4)),
 
-                if (vehicleModel.isNotEmpty) ...[
+                if (vehicleModel.isNotEmpty || partSpec.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  Row(children: [
-                    const Icon(Icons.directions_car, size: 14, color: Color(0xFF64748B)),
-                    const SizedBox(width: 6),
-                    Text(vehicleModel, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-                  ]),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (vehicleModel.isNotEmpty)
+                          Row(children: [
+                            const Icon(Icons.build_circle_outlined, size: 14, color: Color(0xFF004D40)),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(vehicleModel, style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w600))),
+                          ]),
+                        if (vehicleModel.isNotEmpty && partSpec.isNotEmpty) const SizedBox(height: 4),
+                        if (partSpec.isNotEmpty)
+                          Row(children: [
+                            const Icon(Icons.tune_outlined, size: 14, color: Color(0xFFEA580C)),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(partSpec, style: const TextStyle(fontSize: 12, color: Color(0xFFEA580C), fontWeight: FontWeight.w600))),
+                          ]),
+                      ],
+                    ),
+                  ),
                 ],
 
                 if (airconPreferred) ...[
