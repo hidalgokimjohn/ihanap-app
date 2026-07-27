@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../screens/live_offers_screen.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
 
@@ -35,7 +34,7 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
     {'name': 'Food & Catering',  'emoji': '🍽️'},
     {'name': 'Repair & Services','emoji': '🛠️'},
     {'name': 'General Store',    'emoji': '🏪'},
-    {'name': 'Community Updates','emoji': '📍'},
+    {'name': 'Community Check',  'emoji': '📍'},
     {'name': 'Community Helpers','emoji': '🚨'},
   ];
 
@@ -185,18 +184,25 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
         payload['tags'] = jsonEncode(tags);
       }
 
-      final response = await Supabase.instance.client
+      await Supabase.instance.client
           .from('requests')
-          .insert(payload)
-          .select()
-          .single();
+          .insert(payload);
 
       if (mounted) {
-        final requestId = response['id'];
-        Navigator.of(context).pop();
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => LiveOffersScreen(requestId: requestId)),
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.bolt_rounded, color: Colors.white),
+                SizedBox(width: 8),
+                Text('⚡ Ping broadcasted to nearby shops!'),
+              ],
+            ),
+            backgroundColor: Color(0xFF004D40),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {

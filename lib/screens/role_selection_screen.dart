@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import 'responder_registration_screen.dart';
 
@@ -37,6 +39,52 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
   }
 
   Future<void> _selectMerchantRole() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = AuthService.currentUser;
+      if (user == null) return;
+
+      // Check if user already has registered shops
+      final shopsData = await Supabase.instance.client
+          .from('responders')
+          .select()
+          .eq('profile_id', user.id)
+          .order('created_at', ascending: true);
+
+      final shopList = List<Map<String, dynamic>>.from(shopsData);
+
+      if (shopList.isNotEmpty) {
+        // User already has shop(s), activate the first one
+        final activeShop = shopList.first;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('active_shop_id', activeShop['id'] ?? '');
+        await prefs.setString('responder_shop_name', activeShop['shop_name'] ?? '');
+        await prefs.setString('responder_type', activeShop['responder_type'] ?? '');
+        await prefs.setString('responder_owner_name', activeShop['owner_name'] ?? '');
+
+        await AuthService.updateProfile({
+          'primary_role': 'responder',
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Switched to Merchant mode (${activeShop['shop_name']})'),
+              backgroundColor: const Color(0xFF004D40),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        widget.onRoleSelected();
+        return;
+      }
+    } catch (e) {
+      debugPrint('Error checking existing shops: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+
+    // No shops found: open registration screen to create a new shop
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const ResponderRegistrationScreen()),
     );
@@ -71,12 +119,12 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                 child: Container(
                   width: 64,
                   height: 64,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2F0F0),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFE2F0F0),
                     shape: BoxShape.circle,
                   ),
                   child: const Center(
-                    child: Text('👋', style: TextStyle(fontSize: 32)),
+                    child: Icon(Icons.bolt_rounded, size: 36, color: Color(0xFF004D40)),
                   ),
                 ),
               ),

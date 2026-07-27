@@ -185,7 +185,7 @@ class MyOffersScreen extends StatelessWidget {
                                   style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
                               const SizedBox(height: 2),
                               Text(
-                                '\u20b1${price.toStringAsFixed(2)}',
+                                _formatAccountingCurrency(price),
                                 style: const TextStyle(
                                   fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF004D40), letterSpacing: -0.5,
                                 ),
@@ -257,4 +257,13 @@ class MyOffersScreen extends StatelessWidget {
         .inFilter('id', ids);
     return List<Map<String, dynamic>>.from(data);
   }
+}
+
+String _formatAccountingCurrency(num amount) {
+  final parts = amount.toStringAsFixed(2).split('.');
+  final integerPart = parts[0];
+  final decimalPart = parts[1];
+  final regExp = RegExp(r'(\d+?)(?=(\d{3})+(?!\d))');
+  final formattedInteger = integerPart.replaceAllMapped(regExp, (Match m) => '${m[1]},');
+  return '₱$formattedInteger.$decimalPart';
 }

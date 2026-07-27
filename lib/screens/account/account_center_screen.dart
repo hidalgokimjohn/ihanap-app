@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth_service.dart';
 import '../auth_screen.dart';
-import '../role_selection_screen.dart';
+import '../home_screen.dart';
+import '../my_offers_screen.dart';
+import '../responder_registration_screen.dart';
+import '../seller_screen.dart';
 import 'edit_profile_screen.dart';
 import 'manage_shops_screen.dart';
 import 'security_screen.dart';
 
 class AccountCenterScreen extends StatefulWidget {
-  const AccountCenterScreen({super.key});
+  final bool? isMerchantMode;
+  const AccountCenterScreen({super.key, this.isMerchantMode});
 
   @override
   State<AccountCenterScreen> createState() => _AccountCenterScreenState();
@@ -30,44 +36,82 @@ class _AccountCenterScreenState extends State<AccountCenterScreen> {
 
   Future<void> _fetchAccountData() async {
     final userId = AuthService.currentUserId;
-    if (userId == null) return;
+    if (userId == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
 
+    // 1. Profile Data
+    Map<String, dynamic>? profileData;
     try {
-      final profileData = await AuthService.getProfile(userId, true);
+      profileData = await AuthService.getProfile(userId, true);
+    } catch (e) {
+      debugPrint('Error fetching profile: $e');
+    }
 
-      // Fetch live stats in parallel
-      final pingsResponse = await Supabase.instance.client
+    // 2. My Pings Count
+    int pingsCount = 0;
+    try {
+      final res = await Supabase.instance.client
           .from('requests')
           .select('id')
           .eq('user_id', userId);
+      pingsCount = (res as List).length;
+    } catch (e) {
+      debugPrint('Error fetching pings count: $e');
+    }
 
-      final shopsResponse = await Supabase.instance.client
+    // 3. Shops Owned Count & Shop Names
+    int shopsCount = 0;
+    List<String> shopNames = [];
+    try {
+      final res = await Supabase.instance.client
           .from('responders')
-          .select('id')
+          .select('id, shop_name')
           .eq('profile_id', userId);
+      final list = List<Map<String, dynamic>>.from(res);
+      shopsCount = list.length;
+      shopNames = list
+          .map((s) => s['shop_name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching shops count: $e');
+    }
 
-      final shopsList = List<Map<String, dynamic>>.from(shopsResponse);
-      int totalOffers = 0;
-      if (shopsList.isNotEmpty) {
-        final shopNames = shopsList.map((s) => s['shop_name'] as String).toList();
-        final offersResponse = await Supabase.instance.client
+    // 4. Offers Sent Count
+    int offersCount = 0;
+    try {
+      final res = await Supabase.instance.client
+          .from('offers')
+          .select('id')
+          .eq('user_id', userId);
+      offersCount = (res as List).length;
+    } catch (e) {
+      debugPrint('Error fetching offers by user_id: $e');
+    }
+
+    // Fallback: If offers by user_id is 0 but user owns shops, query offers by shop_name
+    if (offersCount == 0 && shopNames.isNotEmpty) {
+      try {
+        final res = await Supabase.instance.client
             .from('offers')
             .select('id')
             .inFilter('shop_name', shopNames);
-        totalOffers = (offersResponse as List).length;
+        offersCount = (res as List).length;
+      } catch (e) {
+        debugPrint('Error fetching offers by shop_name: $e');
       }
+    }
 
-      if (mounted) {
-        setState(() {
-          _profile = profileData;
-          _pingCount = (pingsResponse as List).length;
-          _shopCount = shopsList.length;
-          _offerCount = totalOffers;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() {
+        _profile = profileData;
+        _pingCount = pingsCount;
+        _shopCount = shopsCount;
+        _offerCount = offersCount;
+        _isLoading = false;
+      });
     }
   }
 
@@ -293,29 +337,134 @@ class _AccountCenterScreenState extends State<AccountCenterScreen> {
     );
   }
 
-  Widget _buildStatCard({required String count, required String label, required IconData icon}) {
+  Widget _buildStatCard({
+    required String count,
+    required String label,
+    required IconData icon,
+    VoidCallback? onTap,
+  }) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: const [
-            BoxShadow(color: Color(0x05000000), blurRadius: 8, offset: Offset(0, 2)),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 20, color: const Color(0xFF004D40)),
-            const SizedBox(height: 6),
-            Text(count, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
-            const SizedBox(height: 2),
-            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: const [
+                BoxShadow(color: Color(0x05000000), blurRadius: 8, offset: Offset(0, 2)),
+              ],
+            ),
+            child: Column(
+              children: [
+                Icon(icon, size: 20, color: const Color(0xFF004D40)),
+                const SizedBox(height: 6),
+                Text(
+                  count,
+                  style: GoogleFonts.outfit(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _switchRole(bool isCurrentlyMerchant) async {
+    final targetRole = isCurrentlyMerchant ? 'buyer' : 'responder';
+    final userId = AuthService.currentUserId;
+    if (userId == null) return;
+
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      if (targetRole == 'responder') {
+        final shopsData = await Supabase.instance.client
+            .from('responders')
+            .select()
+            .eq('profile_id', userId)
+            .order('created_at', ascending: true);
+
+        final shopList = List<Map<String, dynamic>>.from(shopsData);
+
+        if (shopList.isNotEmpty) {
+          final activeShop = shopList.first;
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('active_shop_id', activeShop['id'] ?? '');
+          await prefs.setString('responder_shop_name', activeShop['shop_name'] ?? '');
+          await prefs.setString('responder_type', activeShop['responder_type'] ?? '');
+          await prefs.setString('responder_owner_name', activeShop['owner_name'] ?? '');
+
+          await AuthService.updateProfile({'primary_role': 'responder'});
+
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Text('Switched to Merchant Mode (${activeShop['shop_name']})'),
+              backgroundColor: const Color(0xFF004D40),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+
+          // Direct switch - zero redundant loading screens!
+          navigator.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const SellerScreen()),
+            (route) => false,
+          );
+          return;
+        } else {
+          // User has no shop profiles yet -> open registration screen
+          final registered = await navigator.push<bool>(
+            MaterialPageRoute(builder: (_) => const ResponderRegistrationScreen()),
+          );
+
+          if (registered == true) {
+            await AuthService.updateProfile({'primary_role': 'responder'});
+            navigator.pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const SellerScreen()),
+              (route) => false,
+            );
+          }
+          return;
+        }
+      } else {
+        await AuthService.updateProfile({'primary_role': 'buyer'});
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Switched to Buyer Mode'),
+            backgroundColor: Color(0xFF004D40),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      debugPrint('Error switching role: $e');
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to switch mode: $e'),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -324,7 +473,7 @@ class _AccountCenterScreenState extends State<AccountCenterScreen> {
     final String email = _profile?['email'] ?? AuthService.currentUser?.email ?? 'No email set';
     final String contact = _profile?['contact_number'] ?? 'No phone added';
     final String barangay = _profile?['barangay'] ?? 'Butuan City';
-    final String role = _profile?['primary_role'] ?? 'buyer';
+    final bool isMerchant = widget.isMerchantMode ?? (_profile?['primary_role'] == 'responder');
     final String initial = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'P';
 
     return Scaffold(
@@ -402,7 +551,7 @@ class _AccountCenterScreenState extends State<AccountCenterScreen> {
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
-                                    role == 'responder' ? '🏪 Merchant' : '🛍️ Buyer',
+                                    isMerchant ? '🏪 Merchant' : '🛍️ Buyer',
                                     style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
                                   ),
                                 ),
@@ -420,11 +569,36 @@ class _AccountCenterScreenState extends State<AccountCenterScreen> {
                 // Stats Dashboard Row
                 Row(
                   children: [
-                    _buildStatCard(count: '$_pingCount', label: 'My Pings', icon: Icons.bolt_rounded),
+                    _buildStatCard(
+                      count: '$_pingCount',
+                      label: 'My Pings',
+                      icon: Icons.bolt_rounded,
+                      onTap: () {
+                        Navigator.pop(context);
+                      },
+                    ),
                     const SizedBox(width: 12),
-                    _buildStatCard(count: '$_offerCount', label: 'Offers Sent', icon: Icons.local_offer_outlined),
+                    _buildStatCard(
+                      count: '$_offerCount',
+                      label: 'Offers Sent',
+                      icon: Icons.local_offer_outlined,
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+                          appBar: AppBar(title: const Text('My Offers Sent', style: TextStyle(fontWeight: FontWeight.bold))),
+                          body: const MyOffersScreen(),
+                        )));
+                      },
+                    ),
                     const SizedBox(width: 12),
-                    _buildStatCard(count: '$_shopCount', label: 'Shops Owned', icon: Icons.storefront_outlined),
+                    _buildStatCard(
+                      count: '$_shopCount',
+                      label: 'Shops Owned',
+                      icon: Icons.storefront_outlined,
+                      onTap: () async {
+                        await Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageShopsScreen()));
+                        _fetchAccountData();
+                      },
+                    ),
                   ],
                 ),
 
@@ -492,19 +666,9 @@ class _AccountCenterScreenState extends State<AccountCenterScreen> {
                     children: [
                       _buildMenuTile(
                         icon: Icons.swap_horiz_rounded,
-                        title: 'Switch Role Preference',
-                        subtitle: 'Change default view between Buyer and Merchant',
-                        onTap: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => RoleSelectionScreen(
-                                onRoleSelected: () => Navigator.pop(context),
-                              ),
-                            ),
-                          );
-                          _fetchAccountData();
-                        },
+                        title: isMerchant ? 'Switch to Buyer Mode' : 'Switch to Merchant Mode',
+                        subtitle: isMerchant ? 'Switch active view to Buyer Dashboard' : 'Switch active view to Merchant Live Pings Feed',
+                        onTap: () => _switchRole(isMerchant),
                       ),
                       const Divider(height: 1, color: Color(0xFFF1F5F9)),
                       _buildMenuTile(

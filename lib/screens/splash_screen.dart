@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,23 +8,17 @@ import 'home_screen.dart';
 import 'role_selection_screen.dart';
 import 'seller_screen.dart';
 
-/// Simple, Aesthetic, Minimalist Loading Screen for Ping Startup
 class LoadingSplashScreen extends StatefulWidget {
   final VoidCallback? onInitializationComplete;
-  final String? initialStatus;
 
   const LoadingSplashScreen({
     super.key,
     this.onInitializationComplete,
-    this.initialStatus,
   });
 
   @override
   State<LoadingSplashScreen> createState() => _LoadingSplashScreenState();
 }
-
-// Backward compatibility alias
-typedef SplashScreen = LoadingSplashScreen;
 
 class _LoadingSplashScreenState extends State<LoadingSplashScreen> {
   bool _isNavigating = false;
@@ -54,9 +47,9 @@ class _LoadingSplashScreenState extends State<LoadingSplashScreen> {
 
     if (!mounted) return;
 
-    // Check Location permissions in background
+    // Warm up Location service & disk cache in background
     try {
-      await LocationService.getCurrentPosition()
+      await LocationService.initializeOnStartup()
           .timeout(const Duration(seconds: 3), onTimeout: () => null);
     } catch (e) {
       debugPrint('Location service error during startup: $e');
@@ -132,75 +125,72 @@ class _LoadingSplashScreenState extends State<LoadingSplashScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // ── Minimalist Aesthetic Logo ───────────────────────────
+              // ── Minimalist Aesthetic Thunder Logo ───────────────────────────
               Container(
-                width: 72,
-                height: 72,
+                width: 76,
+                height: 76,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF004D40),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF004D40), Color(0xFF00695C)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: const [
                     BoxShadow(
-                      color: const Color(0xFF004D40).withValues(alpha: 0.18),
+                      color: Color(0x28004D40),
                       blurRadius: 24,
-                      offset: const Offset(0, 10),
+                      offset: Offset(0, 10),
                     ),
                   ],
                 ),
                 child: const Icon(
                   Icons.bolt_rounded,
                   color: Colors.white,
-                  size: 40,
+                  size: 44,
                 ),
               ),
 
               const SizedBox(height: 24),
 
-              // ── Brand Title ──────────────────────────────────────────
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Ping',
-                    style: GoogleFonts.outfit(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1.0,
-                      color: const Color(0xFF0F172A),
-                    ),
+              // ── Brand Title with Shader Mask Gradient ──────────────────────
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFF004D40), Color(0xFF10B981)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ).createShader(bounds),
+                child: Text(
+                  'Ping',
+                  style: GoogleFonts.outfit(
+                    fontSize: 40,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -1.2,
+                    color: Colors.white,
                   ),
-                  Container(
-                    margin: const EdgeInsets.only(left: 4, top: 12),
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFE28743),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
+                ),
               ),
 
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
 
               Text(
                 'Broadcast to local shops in seconds.',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 13,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                   color: const Color(0xFF64748B),
                 ),
               ),
 
-              const SizedBox(height: 36),
+              const SizedBox(height: 48),
 
-              // ── Simple Aesthetic Loader ──────────────────────────────
+              // ── Modern Animated Progress Indicator ───────────────────────
               const SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
+                  color: Color(0xFF004D40),
                   strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF004D40)),
                 ),
               ),
             ],

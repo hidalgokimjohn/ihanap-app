@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import 'splash_screen.dart';
@@ -196,16 +197,23 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                           color: const Color(0xFFE2F0F0),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(Icons.search_rounded, color: Color(0xFF004D40), size: 28),
+                        child: const Icon(Icons.bolt_rounded, color: Color(0xFF004D40), size: 28),
                       ),
                       const SizedBox(width: 10),
-                      const Text(
-                        'Ping',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF0F172A),
-                          letterSpacing: -0.5,
+                      ShaderMask(
+                        shaderCallback: (bounds) => const LinearGradient(
+                          colors: [Color(0xFF004D40), Color(0xFF10B981)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ).createShader(bounds),
+                        child: Text(
+                          'Ping',
+                          style: GoogleFonts.outfit(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.8,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ],

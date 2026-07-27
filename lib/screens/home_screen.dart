@@ -1,14 +1,15 @@
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
+import '../widgets/app_drawer.dart';
 import '../widgets/notification_bell.dart';
-import 'create_request_cupertino_screen.dart';
-import 'seller_screen.dart';
-import 'my_requests_screen.dart';
 import 'account/account_center_screen.dart';
 import 'community_check_screen.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'create_request_cupertino_screen.dart';
+import 'my_requests_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,24 +18,45 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _tabIndex = 0;
   Map<String, dynamic>? _userProfile;
-  String _currentCityName = 'Finding location...';
-  late AnimationController _pulseController;
+  String _currentCityName = LocationService.currentLocationNotifier.value?.city ?? 'Butuan City';
+
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    LocationService.currentLocationNotifier.addListener(_onLocationChanged);
     _loadProfile();
-    _loadLocation();
-    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 1))..repeat(reverse: true);
+    _updateLocation();
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    LocationService.currentLocationNotifier.removeListener(_onLocationChanged);
+    _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updateLocation();
+    }
+  }
+
+  void _onLocationChanged() {
+    final loc = LocationService.currentLocationNotifier.value;
+    if (loc != null && mounted) {
+      setState(() {
+        _currentCityName = loc.city;
+      });
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -46,307 +68,401 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _loadLocation() async {
-    final position = await LocationService.getCurrentPosition();
-    if (position != null) {
-      final locData = await LocationService.getCityAndBarangay(
-        position.latitude,
-        position.longitude,
-      );
-      if (mounted) {
-        setState(() {
-          _currentCityName = locData['city'] ?? 'Butuan City';
-        });
+  bool _isUpdatingLocation = false;
+
+  Future<void> _updateLocation({bool forceRefresh = false}) async {
+    if (mounted) setState(() => _isUpdatingLocation = true);
+    try {
+      final position = await LocationService.getCurrentPosition(forceRefresh: forceRefresh);
+      if (position != null) {
+        final locData = await LocationService.getCityAndBarangay(position.latitude, position.longitude);
+        if (mounted) {
+          setState(() {
+            _currentCityName = locData['city'] ?? 'Current City';
+          });
+          if (forceRefresh) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('📍 Precise location updated: ${locData['barangay']}, ${locData['city']}'),
+                backgroundColor: const Color(0xFF004D40),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
       }
+    } catch (e) {
+      debugPrint('Location update error: $e');
+    } finally {
+      if (mounted) setState(() => _isUpdatingLocation = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final userName = _userProfile?['full_name'] ?? 'User';
+    final userName = _userProfile?['full_name'] ?? AuthService.currentUser?.email ?? 'User';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
+      drawer: AppDrawer(
+        isMerchantMode: false,
+        currentTabIndex: _tabIndex,
+        onTabSelected: (i) => setState(() => _tabIndex = i),
+      ),
       appBar: AppBar(
+        centerTitle: false,
+        titleSpacing: 0,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: Color(0xFF004D40), size: 26),
+            tooltip: 'Open Menu',
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         elevation: 0,
-        title: ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFF004D40), Color(0xFF10B981)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ).createShader(bounds),
-          child: Text(
-            'Ping',
-            style: GoogleFonts.outfit(
-              fontWeight: FontWeight.w900,
-              fontSize: 24,
-              letterSpacing: -0.8,
-              color: Colors.white,
-            ),
-          ),
-        ),
-        actions: [
-          const NotificationBell(),
-          IconButton(
-            icon: const Icon(Icons.storefront, color: Color(0xFF004D40)),
-            tooltip: 'Switch to Merchants Mode',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SellerScreen()),
-              );
-            },
-          ),
-          GestureDetector(
-            onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountCenterScreen()));
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: CircleAvatar(
-                radius: 14,
-                backgroundColor: const Color(0xFF004D40),
+        title: _isSearching
+            ? Container(
+                height: 40,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  onChanged: (val) => setState(() {}),
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A)),
+                  decoration: InputDecoration(
+                    hintText: 'Search your Pings...',
+                    hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded, size: 18, color: Color(0xFF64748B)),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                  ),
+                ),
+              )
+            : ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFF004D40), Color(0xFF10B981)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ).createShader(bounds),
                 child: Text(
-                  userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
-                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  'Ping',
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 24,
+                    letterSpacing: -0.8,
+                    color: Colors.white,
+                  ),
                 ),
               ),
+        actions: [
+          if (_tabIndex == 0)
+            IconButton(
+              icon: Icon(
+                _isSearching ? Icons.close_rounded : Icons.search_rounded,
+                color: const Color(0xFF004D40),
+              ),
+              tooltip: _isSearching ? 'Close Search' : 'Search Pings',
+              onPressed: () {
+                setState(() {
+                  if (_isSearching) {
+                    _isSearching = false;
+                    _searchController.clear();
+                  } else {
+                    _isSearching = true;
+                  }
+                });
+              },
             ),
-          ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(color: const Color(0xFFE2E8F0), height: 1),
+        ),
       ),
       body: IndexedStack(
         index: _tabIndex,
         children: [
-          // ── Tab 0: Discover ─────────────────────────────────────────
+          // ── View 0: My Pings (Primary View) ─────────────────────────
+          Column(
+            children: [
+              // Clean Header Banner
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Need parts, rooms, or a rider?',
+                              style: GoogleFonts.outfit(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Broadcast your request to nearby verified shops in seconds.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF94A3B8),
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _currentCityName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              _isUpdatingLocation
+                                  ? const SizedBox(
+                                      width: 11,
+                                      height: 11,
+                                      child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.refresh_rounded, size: 13, color: Colors.white70),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // My Pings List
+              Expanded(
+                child: MyRequestsScreen(
+                  searchQuery: _searchController.text,
+                ),
+              ),
+            ],
+          ),
+
+          // ── View 1: Discover Categories Grid ────────────────────────
           CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Discover Categories',
+                        style: GoogleFonts.outfit(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: const Color(0xFF0F172A),
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.15),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white.withOpacity(0.2)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  FadeTransition(
-                                    opacity: _pulseController,
-                                    child: Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFF10B981),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(color: Color(0xFF10B981), blurRadius: 4, spreadRadius: 1)
-                                        ]
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Live Shops • $_currentCityName',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFF6B57),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Text('PRO', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Ping what you need.\nNearby stores & helpers bid!',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            height: 1.2,
-                            letterSpacing: -0.5,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Select a category to quickly send a targeted Ping to local stores.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
                   ),
                 ),
               ),
               SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                padding: const EdgeInsets.all(16),
                 sliver: SliverGrid.count(
                   crossAxisCount: 2,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  childAspectRatio: 1.05,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 1.3,
                   children: const [
                     _CategoryCard(
-                      title: 'Parts & Hardware',
-                      subtitle: 'Auto, Moto, Tools',
+                      title: 'Auto Parts & Supply',
+                      subtitle: 'Car, Motorcycle & Truck Parts',
                       emoji: '🚗',
-                      color: Color(0xFFE8F5E9),
+                      color: Color(0xFFEFF6FF),
                       dbCategory: 'Parts & Hardware',
                     ),
                     _CategoryCard(
-                      title: 'Express Rider',
-                      subtitle: 'Courier & Errands',
-                      emoji: '📦',
-                      color: Color(0xFFFFF3E0),
-                      dbCategory: 'Express Rider',
+                      title: 'Hardware & Supplies',
+                      subtitle: 'Tools, Electrical, Plumbing',
+                      emoji: '🔧',
+                      color: Color(0xFFFEF3C7),
+                      dbCategory: 'Parts & Hardware',
                     ),
                     _CategoryCard(
                       title: 'Rooms & Boarding',
-                      subtitle: 'Rentals & Bedspace',
+                      subtitle: 'Bedspace, Apartments & Rooms',
                       emoji: '🏠',
-                      color: Color(0xFFE3F2FD),
+                      color: Color(0xFFECFDF5),
                       dbCategory: 'Rooms & Boarding',
                     ),
                     _CategoryCard(
+                      title: 'Express Rider',
+                      subtitle: 'Errands, Pabili & Delivery',
+                      emoji: '📦',
+                      color: Color(0xFFF3E8FF),
+                      dbCategory: 'Express Rider',
+                    ),
+                    _CategoryCard(
                       title: 'Food & Catering',
-                      subtitle: 'Meals, Snacks, Catering',
+                      subtitle: 'Bulk Food, Snacks & Drinks',
                       emoji: '🍽️',
-                      color: Color(0xFFFBE9E7),
+                      color: Color(0xFFFFF1F2),
                       dbCategory: 'Food & Catering',
                     ),
                     _CategoryCard(
                       title: 'Repair & Services',
-                      subtitle: 'Plumbing, Tech, Fixes',
+                      subtitle: 'Aircon, Auto & Appliance',
                       emoji: '🛠️',
-                      color: Color(0xFFEDE7F6),
+                      color: Color(0xFFF0FDF4),
                       dbCategory: 'Repair & Services',
                     ),
                     _CategoryCard(
                       title: 'General Store',
-                      subtitle: 'Groceries & Goods',
+                      subtitle: 'Groceries, Supplies & Items',
                       emoji: '🏪',
-                      color: Color(0xFFE0F2F1),
+                      color: Color(0xFFFEFCE8),
                       dbCategory: 'General Store',
                     ),
                     _CategoryCard(
                       title: 'Community Check',
-                      subtitle: 'Traffic & Queue Live',
+                      subtitle: 'Roads, Floods & Traffic',
                       emoji: '📍',
-                      color: Color(0xFFF3E5F5),
-                      dbCategory: 'Community Updates',
-                    ),
-                    _CategoryCard(
-                      title: 'Community Helpers',
-                      subtitle: 'Emergency & Local Aid',
-                      emoji: '🚨',
-                      color: Color(0xFFFFEBEE),
-                      dbCategory: 'Community Helpers',
+                      color: Color(0xFFEEF2FF),
+                      dbCategory: 'Community Check',
                     ),
                   ],
                 ),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: 90)),
             ],
           ),
-          // ── Tab 1: My Requests ──────────────────────────────────────
-          const MyRequestsScreen(),
         ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: _tabIndex == 0 ? Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0),
-        child: SizedBox(
-          height: 52,
-          child: ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                CupertinoPageRoute(
-                  builder: (_) => const CreateRequestCupertinoScreen(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF004D40),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            ).copyWith(
-              shadowColor: WidgetStateProperty.all(const Color(0xFF004D40).withOpacity(0.5)),
-              elevation: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.pressed) ? 4 : 12),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.bolt_rounded, size: 22, color: Color(0xFFFF8C42)),
-                SizedBox(width: 8),
-                Text(
-                  'Send Ping',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: -0.2),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ) : null,
       bottomNavigationBar: Container(
+        height: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 24),
         decoration: BoxDecoration(
+          color: Colors.white,
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, -5)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 20, offset: const Offset(0, -5)),
           ],
         ),
-        child: BottomNavigationBar(
-          currentIndex: _tabIndex,
-          onTap: (i) => setState(() => _tabIndex = i),
-          selectedItemColor: const Color(0xFF004D40),
-          unselectedItemColor: const Color(0xFF94A3B8),
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-          unselectedLabelStyle: const TextStyle(fontSize: 12),
-          backgroundColor: Colors.white,
-          elevation: 0,
-          type: BottomNavigationBarType.fixed,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.grid_view_outlined),
-              activeIcon: Icon(Icons.grid_view),
-              label: 'Discover',
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Left Action: Notification Bell
+            const NotificationBell(),
+
+            // Center Action: Send Ping FAB
+            GestureDetector(
+              onTap: () {
+                Navigator.of(context).push(
+                  CupertinoPageRoute(
+                    builder: (_) => const CreateRequestCupertinoScreen(),
+                  ),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF004D40), Color(0xFF00695C)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x30004D40), blurRadius: 12, offset: Offset(0, 4)),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.bolt_rounded, size: 20, color: Color(0xFFFF8C42)),
+                    SizedBox(width: 6),
+                    Text(
+                      'Send Ping',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.receipt_long_outlined),
-              activeIcon: Icon(Icons.receipt_long),
-              label: 'My Pings',
+
+            // Right Action: My Account Avatar
+            GestureDetector(
+              onTap: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountCenterScreen(isMerchantMode: false)));
+              },
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF004D40), width: 1.5),
+                ),
+                child: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: const Color(0xFF004D40),
+                  child: Text(
+                    userName.isNotEmpty ? userName[0].toUpperCase() : 'P',
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -378,7 +494,7 @@ class _CategoryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 15, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 15, offset: const Offset(0, 4)),
         ],
       ),
       clipBehavior: Clip.antiAlias,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,8 @@ import '../services/location_service.dart';
 import '../widgets/offer_bottom_sheet.dart';
 import '../widgets/order_summary_sheet.dart';
 import '../widgets/notification_bell.dart';
+import '../widgets/app_drawer.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'account/account_center_screen.dart';
 import 'responder_registration_screen.dart';
 import 'my_offers_screen.dart';
@@ -20,8 +23,8 @@ class SellerScreen extends StatefulWidget {
   State<SellerScreen> createState() => _SellerScreenState();
 }
 
-class _SellerScreenState extends State<SellerScreen> {
-  String _currentCityName = 'Butuan City';
+class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver {
+  String _currentCityName = LocationService.currentLocationNotifier.value?.city ?? 'Butuan City';
   Position? _currentPosition;
   Map<String, String> _previousStatuses = {};
 
@@ -44,28 +47,83 @@ class _SellerScreenState extends State<SellerScreen> {
       case 'food':       return ['Food & Catering'];
       case 'repair':     return ['Repair & Services'];
       case 'general':    return ['General Store'];
-      case 'community':  return ['Community Updates', 'Community Helpers'];
-      default:           return ['Parts & Hardware', 'Repair & Services', 'Food & Catering', 'Express Rider', 'Rooms & Boarding', 'General Store', 'Community Updates', 'Community Helpers'];
+      case 'community':  return ['Community Check', 'Community Helpers'];
+      default:           return ['Parts & Hardware', 'Repair & Services', 'Food & Catering', 'Express Rider', 'Rooms & Boarding', 'General Store', 'Community Check', 'Community Helpers'];
     }
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    LocationService.currentLocationNotifier.addListener(_onLocationChanged);
     _loadShops();
-    _loadLocation();
+    _updateLocation();
   }
 
-  Future<void> _loadLocation() async {
-    final pos = await LocationService.getCurrentPosition();
-    if (pos != null) {
-      final locData = await LocationService.getCityAndBarangay(pos.latitude, pos.longitude);
-      if (mounted) {
-        setState(() {
-          _currentPosition = pos;
-          _currentCityName = locData['city'] ?? 'Butuan City';
-        });
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    LocationService.currentLocationNotifier.removeListener(_onLocationChanged);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updateLocation();
+    }
+  }
+
+  void _onLocationChanged() {
+    final loc = LocationService.currentLocationNotifier.value;
+    if (loc != null && mounted) {
+      setState(() {
+        _currentCityName = loc.city;
+        _currentPosition = Position(
+          longitude: loc.longitude,
+          latitude: loc.latitude,
+          timestamp: loc.updatedAt,
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        );
+      });
+    }
+  }
+
+  bool _isUpdatingLocation = false;
+
+  Future<void> _updateLocation({bool forceRefresh = false}) async {
+    if (mounted) setState(() => _isUpdatingLocation = true);
+    try {
+      final pos = await LocationService.getCurrentPosition(forceRefresh: forceRefresh);
+      if (pos != null) {
+        final locData = await LocationService.getCityAndBarangay(pos.latitude, pos.longitude);
+        if (mounted) {
+          setState(() {
+            _currentPosition = pos;
+            _currentCityName = locData['city'] ?? 'Current City';
+          });
+          if (forceRefresh) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('📍 Precise location updated: ${locData['barangay']}, ${locData['city']}'),
+                backgroundColor: const Color(0xFF004D40),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
       }
+    } catch (e) {
+      debugPrint('Location update error: $e');
+    } finally {
+      if (mounted) setState(() => _isUpdatingLocation = false);
     }
   }
 
@@ -173,23 +231,62 @@ class _SellerScreenState extends State<SellerScreen> {
     }
 
     final activeShop = _activeShop;
+    final String userEmail = AuthService.currentUser?.email ?? '';
+    final String userInitial = userEmail.isNotEmpty ? userEmail[0].toUpperCase() : 'M';
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      drawer: AppDrawer(
+        isMerchantMode: true,
+        currentTabIndex: _tabIndex,
+        onTabSelected: (i) => setState(() => _tabIndex = i),
+      ),
       appBar: AppBar(
-        title: const Text('Ping for Merchants',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+        centerTitle: false,
+        titleSpacing: 0,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: Color(0xFF004D40), size: 26),
+            tooltip: 'Open Menu',
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+        title: Row(
+          children: [
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFF004D40), Color(0xFF10B981)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              child: Text(
+                'Ping',
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 24,
+                  letterSpacing: -0.8,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFFFDE68A)),
+              ),
+              child: const Text(
+                'MERCHANT',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFFD97706), letterSpacing: 0.5),
+              ),
+            ),
+          ],
+        ),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
-          const NotificationBell(),
-          IconButton(
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountCenterScreen()));
-            },
-            icon: const Icon(Icons.person_outline, color: Color(0xFF004D40)),
-            tooltip: 'Account Settings',
-          ),
-          // Add Shop button
           IconButton(
             onPressed: _addNewShop,
             icon: const Icon(Icons.add_business_outlined, color: Color(0xFF004D40)),
@@ -227,10 +324,28 @@ class _SellerScreenState extends State<SellerScreen> {
                   const Text('Live Pings',
                       style: TextStyle(color: Color(0xFF0F172A), fontSize: 20, fontWeight: FontWeight.w900)),
                 ]),
-                const SizedBox(height: 2),
-                Text(
-                  'Customer Pings Near $_currentCityName',
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w500),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Customer Pings Near $_currentCityName',
+                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: _isUpdatingLocation
+                            ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF004D40)))
+                            : const Icon(Icons.refresh_rounded, size: 14, color: Color(0xFF004D40)),
+                      ),
+                    ),
+                  ],
                 ),
 
                 if (_shops.isNotEmpty) ...[
@@ -289,29 +404,6 @@ class _SellerScreenState extends State<SellerScreen> {
                       ],
                     ),
                   ),
-
-                  if (activeShop != null) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0FDF4),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFBBF7D0)),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(_typeEmoji(activeShop['responder_type']), style: const TextStyle(fontSize: 13)),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            '${activeShop['shop_name']} • ${_typeLabel(activeShop['responder_type'])}  •  Tap chip to switch • Long-press to edit',
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF059669)),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ]),
-                    ),
-                  ],
                 ],
               ],
             ),
@@ -332,32 +424,20 @@ class _SellerScreenState extends State<SellerScreen> {
                   return Center(child: Text('Error: ${snapshot.error}', textAlign: TextAlign.center));
                 }
 
-                final allRequests = snapshot.data ?? [];
-                final matchingCats = _matchingCategories();
-
-                final requests = allRequests.where((r) {
-                  final statusOk = r['status'] == 'open' || r['status'] == 'active' || r['status'] == 'matched';
-                  if (!statusOk) return false;
-                  if (_showAll || matchingCats.isEmpty) return true;
-                  return matchingCats.contains(r['category'] ?? '');
+                final allActive = (snapshot.data ?? []).where((r) {
+                  final status = r['status'];
+                  return status == 'open' || status == 'active' || status == 'matched';
                 }).toList();
 
-                final totalActive = allRequests.where((r) =>
-                  r['status'] == 'open' || r['status'] == 'active' || r['status'] == 'matched').length;
-                final filteredOut = totalActive - requests.length;
+                final matchingCats = _matchingCategories();
 
-                bool playedHaptic = false;
-                Map<String, String> currentStatuses = {};
-                for (var req in requests) {
-                  final id = req['id'] as String;
-                  final status = req['status'] as String;
-                  currentStatuses[id] = status;
-                  if (status == 'matched' && (_previousStatuses[id] == 'active' || _previousStatuses[id] == 'open') && !playedHaptic) {
-                    HapticFeedback.heavyImpact();
-                    playedHaptic = true;
-                  }
-                }
-                _previousStatuses = currentStatuses;
+                final matchingRequests = allActive.where((r) {
+                  return matchingCats.isEmpty || matchingCats.contains(r['category'] ?? '');
+                }).toList();
+
+                final outsideCount = allActive.length - matchingRequests.length;
+                final requests = _showAll ? allActive : matchingRequests;
+                final showToggleBtn = matchingCats.isNotEmpty && outsideCount > 0;
 
                 if (requests.isEmpty) {
                   return ListView(children: [
@@ -366,12 +446,12 @@ class _SellerScreenState extends State<SellerScreen> {
                       child: Column(children: [
                         const Text('No matching Pings right now.',
                             style: TextStyle(fontSize: 16, color: Color(0xFF64748B))),
-                        if (filteredOut > 0) ...[
+                        if (outsideCount > 0) ...[
                           const SizedBox(height: 8),
                           GestureDetector(
                             onTap: () => setState(() => _showAll = true),
                             child: Text(
-                              'Show $filteredOut other Ping${filteredOut > 1 ? 's' : ''} outside your category',
+                              'Show $outsideCount other Ping${outsideCount > 1 ? 's' : ''} outside your category',
                               style: const TextStyle(fontSize: 13, color: Color(0xFF004D40),
                                   fontWeight: FontWeight.w600, decoration: TextDecoration.underline),
                             ),
@@ -384,13 +464,14 @@ class _SellerScreenState extends State<SellerScreen> {
 
                 return ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: requests.length + (filteredOut > 0 ? 1 : 0),
+                  itemCount: requests.length + (showToggleBtn ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (index == requests.length) {
                       return Padding(
                         padding: const EdgeInsets.only(top: 4, bottom: 24),
-                        child: GestureDetector(
+                        child: InkWell(
                           onTap: () => setState(() => _showAll = !_showAll),
+                          borderRadius: BorderRadius.circular(20),
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             decoration: BoxDecoration(
@@ -402,15 +483,15 @@ class _SellerScreenState extends State<SellerScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(
-                                  _showAll ? Icons.filter_list_off : Icons.filter_list,
+                                  _showAll ? Icons.filter_alt_off_rounded : Icons.filter_alt_rounded,
                                   size: 16,
                                   color: const Color(0xFF004D40),
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
                                   _showAll
-                                    ? 'Showing all requests • Tap to filter'
-                                    : 'Show $filteredOut more request${filteredOut > 1 ? 's' : ''} outside your category',
+                                    ? 'Showing all requests • Tap to filter to your category'
+                                    : 'Show $outsideCount more request${outsideCount > 1 ? 's' : ''} outside your category',
                                   style: const TextStyle(
                                     fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF004D40)),
                                 ),
@@ -438,28 +519,106 @@ class _SellerScreenState extends State<SellerScreen> {
           const MyOffersScreen(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _tabIndex,
-        onTap: (i) => setState(() => _tabIndex = i),
-        selectedItemColor: const Color(0xFF004D40),
-        unselectedItemColor: const Color(0xFF94A3B8),
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-        unselectedLabelStyle: const TextStyle(fontSize: 12),
-        backgroundColor: Colors.white,
-        elevation: 8,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dynamic_feed_outlined),
-            activeIcon: Icon(Icons.dynamic_feed),
-            label: 'Live Requests',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.local_offer_outlined),
-            activeIcon: Icon(Icons.local_offer),
-            label: 'My Offers',
-          ),
-        ],
+      bottomNavigationBar: Container(
+        height: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 20, offset: const Offset(0, -5)),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Left: Notifications Bell
+            const NotificationBell(),
+
+            // Center: Tab Switcher Pill (Live Pings vs My Offers)
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: () => setState(() => _tabIndex = 0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _tabIndex == 0 ? const Color(0xFF004D40) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.dynamic_feed, size: 16, color: _tabIndex == 0 ? Colors.white : const Color(0xFF64748B)),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Live Pings',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _tabIndex == 0 ? Colors.white : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() => _tabIndex = 1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _tabIndex == 1 ? const Color(0xFF004D40) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.local_offer, size: 16, color: _tabIndex == 1 ? Colors.white : const Color(0xFF64748B)),
+                          const SizedBox(width: 6),
+                          Text(
+                            'My Offers',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _tabIndex == 1 ? Colors.white : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Right: My Account Avatar
+            GestureDetector(
+              onTap: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountCenterScreen(isMerchantMode: true)));
+              },
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF004D40), width: 1.5),
+                ),
+                child: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: const Color(0xFF004D40),
+                  child: Text(
+                    userInitial,
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -565,127 +724,205 @@ class _RequestCard extends StatelessWidget {
           side: BorderSide(color: borderColor),
         ),
         child: InkWell(
-          onTap: isMatched
-              ? () => showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) => OrderSummarySheet(request: request),
-                  )
-              : null,
+          onTap: () {
+            if (isMatched) {
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => OrderSummarySheet(request: request),
+              );
+            } else {
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => OfferBottomSheet(
+                  requestId: request['id'],
+                  request: request,
+                  shopName: shopName,
+                ),
+              );
+            }
+          },
           borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
+            child: Padding(
+            padding: const EdgeInsets.all(18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  _Badge(
-                    label: '$emoji  $category',
-                    bg: isMatched ? Colors.white : const Color(0xFFF8FAFC),
-                    border: isMatched ? const Color(0xFFD1FAE5) : const Color(0xFFE2E8F0),
-                    fg: const Color(0xFF334155),
-                  ),
-                  const Spacer(),
-                  _Badge(label: distanceLabel, bg: const Color(0xFFE2F0F0), fg: const Color(0xFF004D40)),
-                ]),
+                // Header Row: Category + Fulfillment Breadcrumb (Left) & Distance Badge (Right)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isMatched ? Colors.white : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Text(
+                            '$emoji $category • ${_fulfillmentLabel(fulfillment)}',
+                            style: GoogleFonts.outfit(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF334155),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _Badge(label: distanceLabel, bg: const Color(0xFFE2F0F0), fg: const Color(0xFF004D40)),
+                  ],
+                ),
 
                 if (subCategory.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFCBD5E1)),
+                      color: const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
                     ),
-                    child: Text(subCategory,
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
+                    child: Text(
+                      '🏷️ $subCategory',
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
+                    ),
                   ),
                 ],
 
-                const SizedBox(height: 14),
-                Text(description,
-                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), height: 1.4)),
+                const SizedBox(height: 12),
 
-                if (vehicleModel.isNotEmpty || partSpec.isNotEmpty) ...[
+                // Item Title / Description
+                Text(
+                  description,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.outfit(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF0F172A),
+                    height: 1.3,
+                  ),
+                ),
+
+                // Grouped Specifications Box (Vehicle, Spec, Aircon)
+                if (vehicleModel.isNotEmpty || partSpec.isNotEmpty || airconPreferred) ...[
                   const SizedBox(height: 10),
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF8FAFC),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      border: const Border(
+                        left: BorderSide(color: Color(0xFF004D40), width: 3),
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         if (vehicleModel.isNotEmpty)
-                          Row(children: [
-                            const Icon(Icons.build_circle_outlined, size: 14, color: Color(0xFF004D40)),
-                            const SizedBox(width: 6),
-                            Expanded(child: Text(vehicleModel, style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w600))),
-                          ]),
-                        if (vehicleModel.isNotEmpty && partSpec.isNotEmpty) const SizedBox(height: 4),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.directions_car_outlined, size: 13, color: Color(0xFF2563EB)),
+                              const SizedBox(width: 4),
+                              Text(vehicleModel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF))),
+                            ],
+                          ),
                         if (partSpec.isNotEmpty)
-                          Row(children: [
-                            const Icon(Icons.tune_outlined, size: 14, color: Color(0xFFEA580C)),
-                            const SizedBox(width: 6),
-                            Expanded(child: Text(partSpec, style: const TextStyle(fontSize: 12, color: Color(0xFFEA580C), fontWeight: FontWeight.w600))),
-                          ]),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.build_circle_outlined, size: 13, color: Color(0xFFEA580C)),
+                              const SizedBox(width: 4),
+                              Text(partSpec, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFC2410C))),
+                            ],
+                          ),
+                        if (airconPreferred)
+                          const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.ac_unit_rounded, size: 13, color: Color(0xFF0EA5E9)),
+                              SizedBox(width: 4),
+                              Text('Aircon Preferred', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0284C7))),
+                            ],
+                          ),
                       ],
                     ),
                   ),
                 ],
 
-                if (airconPreferred) ...[
-                  const SizedBox(height: 8),
-                  Row(children: const [
-                    Icon(Icons.ac_unit, size: 14, color: Color(0xFF0EA5E9)),
-                    SizedBox(width: 6),
-                    Text('Aircon Preferred', style: TextStyle(fontSize: 13, color: Color(0xFF0EA5E9), fontWeight: FontWeight.w600)),
-                  ]),
-                ],
-
                 const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _fulfillmentBg(fulfillment),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_fulfillmentLabel(fulfillment),
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _fulfillmentFg(fulfillment))),
-                ),
-
-                const SizedBox(height: 16),
                 const Divider(color: Color(0xFFE2E8F0), height: 1),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
 
+                // Footer Row: Budget Highlight + Send Offer Action Button
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Text('Max Budget',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 2),
-                      Text('₱${maxBudget.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                              fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF004D40), letterSpacing: -0.5)),
-                    ]),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
+                          style: GoogleFonts.outfit(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF64748B),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatAccountingCurrency(maxBudget),
+                          style: GoogleFonts.outfit(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: const Color(0xFF004D40),
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                      ],
+                    ),
                     if (isMatched)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
-                            color: const Color(0xFF10B981), borderRadius: BorderRadius.circular(20)),
-                        child: const Row(children: [
-                          Text('🎉 ', style: TextStyle(fontSize: 16)),
-                          Text('Offer Accepted', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        ]),
+                          color: const Color(0xFF10B981),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Row(
+                          children: [
+                            Text('🎉 ', style: TextStyle(fontSize: 14)),
+                            Text('Offer Accepted', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                          ],
+                        ),
                       )
                     else
-                      SizedBox(
-                        width: 140,
+                      Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF004D40), Color(0xFF00695C)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: const [
+                            BoxShadow(color: Color(0x20004D40), blurRadius: 10, offset: Offset(0, 4)),
+                          ],
+                        ),
                         child: ElevatedButton(
                           onPressed: () => showModalBottomSheet(
                             context: context,
@@ -697,11 +934,23 @@ class _RequestCard extends StatelessWidget {
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF004D40),
+                            backgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
                             foregroundColor: Colors.white,
-                            minimumSize: const Size(0, 48),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
-                          child: const Text('Send Offer', style: TextStyle(fontWeight: FontWeight.bold)),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.bolt_rounded, size: 18, color: Color(0xFFFF8C42)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Send Offer',
+                                style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w800),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                   ],
@@ -734,5 +983,14 @@ class _Badge extends StatelessWidget {
       child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: fg)),
     );
   }
+}
+
+String _formatAccountingCurrency(num amount) {
+  final parts = amount.toStringAsFixed(2).split('.');
+  final integerPart = parts[0];
+  final decimalPart = parts[1];
+  final regExp = RegExp(r'(\d+?)(?=(\d{3})+(?!\d))');
+  final formattedInteger = integerPart.replaceAllMapped(regExp, (Match m) => '${m[1]},');
+  return '₱$formattedInteger.$decimalPart';
 }
 

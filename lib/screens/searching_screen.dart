@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class SearchingScreen extends StatefulWidget {
   const SearchingScreen({super.key});
@@ -20,7 +21,7 @@ class _SearchingScreenState extends State<SearchingScreen>
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
-    _animation = Tween<double>(begin: 1.0, end: 1.5).animate(
+    _animation = Tween<double>(begin: 0.85, end: 1.15).animate(
       CurvedAnimation(
         parent: _controller,
         curve: Curves.easeInOut,
@@ -37,11 +38,11 @@ class _SearchingScreenState extends State<SearchingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black54),
+        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
       ),
       body: Center(
         child: Column(
@@ -50,37 +51,53 @@ class _SearchingScreenState extends State<SearchingScreen>
             ScaleTransition(
               scale: _animation,
               child: Container(
-                width: 100,
-                height: 100,
+                width: 104,
+                height: 104,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFF008080).withOpacity(0.2), // Teal pulse
+                  color: const Color(0xFFE2F0F0),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x20004D40),
+                      blurRadius: 20,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
                 ),
                 child: const Center(
                   child: Icon(
-                    Icons.search,
-                    size: 48,
-                    color: Color(0xFF008080),
+                    Icons.bolt_rounded,
+                    size: 52,
+                    color: Color(0xFF004D40),
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 48),
-            const Text(
-              'Searching for Offers...',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF008080),
+            const SizedBox(height: 44),
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFF004D40), Color(0xFF10B981)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              child: Text(
+                'Pinging Nearby Shops...',
+                style: GoogleFonts.outfit(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.5,
+                  color: Colors.white,
+                ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             const Text(
-              'Hang tight! We are looking for the best\nshops and helpers nearby.',
+              'Hang tight! Broadcasting your request\nto local verified stores and helpers.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
+                fontSize: 14,
+                color: Color(0xFF64748B),
+                height: 1.5,
               ),
             ),
           ],
