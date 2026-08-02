@@ -598,167 +598,243 @@ class RequestWithOffersCard extends StatelessWidget {
             const SizedBox(height: 12),
 
             // Live Merchant Offers Section
-            StreamBuilder<List<Map<String, dynamic>>>(
-              stream: Supabase.instance.client
-                  .from('offers')
-                  .stream(primaryKey: ['id'])
-                  .eq('request_id', request['id'])
-                  .order('offered_price', ascending: true),
-              builder: (context, snap) {
-                if (!snap.hasData) {
-                  return const SizedBox(
-                    height: 24,
-                    child: Center(
-                      child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF004D40))),
-                    ),
-                  );
-                }
-
-                final offers = snap.data!;
-
-                if (offers.isEmpty) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.sensors_rounded, size: 14, color: Color(0xFF10B981)),
-                        SizedBox(width: 8),
-                        Text(
-                          'Radar active • Waiting for local merchant offers...',
-                          style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.local_offer_rounded, size: 14, color: Color(0xFF004D40)),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${offers.length} Offer${offers.length > 1 ? 's' : ''} Received',
-                          style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ...offers.map((offer) {
-                      final isAccepted  = acceptedId == offer['id'];
-                      final price       = (offer['offered_price'] ?? 0).toDouble();
-                      final shopName    = offer['seller_name'] ?? 'Merchant';
-                      final note        = offer['note'] ?? '';
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: isAccepted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isAccepted ? const Color(0xFF86EFAC) : const Color(0xFFE2E8F0),
-                            width: isAccepted ? 1.5 : 1,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 12,
-                                  backgroundColor: isAccepted ? const Color(0xFF10B981) : const Color(0xFF004D40),
-                                  child: Text(
-                                    shopName.isNotEmpty ? shopName[0].toUpperCase() : 'M',
-                                    style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        shopName,
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      Text(
-                                        _formatAccountingCurrency(price),
-                                        style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w900, color: const Color(0xFF004D40)),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (isAccepted)
-                                  ElevatedButton.icon(
-                                    onPressed: () => showModalBottomSheet(
-                                      context: context,
-                                      isScrollControlled: true,
-                                      builder: (_) => OrderSummarySheet(request: request),
-                                    ),
-                                    icon: const Icon(Icons.check_circle_rounded, size: 13, color: Colors.white),
-                                    label: const Text('Accepted', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF10B981),
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                    ),
-                                  )
-                                else if (isOpen)
-                                  ElevatedButton(
-                                    onPressed: () => onAccept(offer),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF004D40),
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                    ),
-                                    child: const Text('Accept', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                  ),
-                              ],
-                            ),
-                            if (note.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: const Color(0xFFF1F5F9)),
-                                ),
-                                child: Text(
-                                  '"$note"',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontStyle: FontStyle.italic),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                );
-              },
+            _OffersList(
+              request: request,
+              isOpen: isOpen,
+              acceptedId: acceptedId,
+              onAccept: onAccept,
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _OffersList extends StatefulWidget {
+  final Map<String, dynamic> request;
+  final bool isOpen;
+  final dynamic acceptedId;
+  final void Function(Map<String, dynamic> offer) onAccept;
+
+  const _OffersList({
+    required this.request,
+    required this.isOpen,
+    required this.acceptedId,
+    required this.onAccept,
+  });
+
+  @override
+  State<_OffersList> createState() => _OffersListState();
+}
+
+class _OffersListState extends State<_OffersList> {
+  final Set<String> _seenOfferIds = {};
+  bool _firstLoad = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('offers')
+          .stream(primaryKey: ['id'])
+          .eq('request_id', widget.request['id'])
+          .order('offered_price', ascending: true),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const SizedBox(
+            height: 24,
+            child: Center(
+              child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF004D40))),
+            ),
+          );
+        }
+
+        final offers = snap.data!;
+        final currentIds = offers.map((o) => o['id'].toString()).toSet();
+        final newIds = _firstLoad ? <String>{} : currentIds.difference(_seenOfferIds);
+        _firstLoad = false;
+        _seenOfferIds
+          ..clear()
+          ..addAll(currentIds);
+
+        if (offers.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.sensors_rounded, size: 14, color: Color(0xFF10B981)),
+                SizedBox(width: 8),
+                Text(
+                  'Radar active • Waiting for local merchant offers...',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.local_offer_rounded, size: 14, color: Color(0xFF004D40)),
+                const SizedBox(width: 6),
+                Text(
+                  '${offers.length} Offer${offers.length > 1 ? 's' : ''} Received',
+                  style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+                ),
+                if (newIds.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDC2626),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${newIds.length} NEW',
+                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.3),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...offers.map((offer) {
+              final offerId     = offer['id'].toString();
+              final isAccepted  = widget.acceptedId == offer['id'];
+              final isNew       = newIds.contains(offerId);
+              final price       = (offer['offered_price'] ?? 0).toDouble();
+              final shopName    = offer['seller_name'] ?? 'Merchant';
+              final note        = offer['note'] ?? '';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isAccepted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isNew
+                        ? const Color(0xFFDC2626)
+                        : (isAccepted ? const Color(0xFF86EFAC) : const Color(0xFFE2E8F0)),
+                    width: isNew ? 1.5 : (isAccepted ? 1.5 : 1),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 12,
+                          backgroundColor: isAccepted ? const Color(0xFF10B981) : const Color(0xFF004D40),
+                          child: Text(
+                            shopName.isNotEmpty ? shopName[0].toUpperCase() : 'M',
+                            style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      shopName,
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (isNew) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFDC2626),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: const Text(
+                                        'NEW',
+                                        style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.3),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              Text(
+                                _formatAccountingCurrency(price),
+                                style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w900, color: const Color(0xFF004D40)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (isAccepted)
+                          ElevatedButton.icon(
+                            onPressed: () => showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              builder: (_) => OrderSummarySheet(request: widget.request),
+                            ),
+                            icon: const Icon(Icons.check_circle_rounded, size: 13, color: Colors.white),
+                            label: const Text('Accepted', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          )
+                        else if (widget.isOpen)
+                          ElevatedButton(
+                            onPressed: () => widget.onAccept(offer),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF004D40),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text('Accept', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                      ],
+                    ),
+                    if (note.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFF1F5F9)),
+                        ),
+                        child: Text(
+                          '"$note"',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontStyle: FontStyle.italic),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }),
+          ],
+        );
+      },
     );
   }
 }

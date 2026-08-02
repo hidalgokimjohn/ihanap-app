@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,12 +25,11 @@ class SellerScreen extends StatefulWidget {
 class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver {
   String _currentCityName = LocationService.currentLocationNotifier.value?.city ?? 'Butuan City';
   Position? _currentPosition;
-  Map<String, String> _previousStatuses = {};
 
   List<Map<String, dynamic>> _shops = [];
   int _activeShopIndex = 0;
   bool _profileLoaded = false;
-  bool _showAll = false;
+  bool _showAll = true;
   int _tabIndex = 0; // 0 = Live Requests, 1 = My Offers
 
   Map<String, dynamic>? get _activeShop =>
@@ -129,6 +127,7 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
 
   Future<void> _loadShops() async {
     final userId = AuthService.currentUserId;
+    debugPrint('[PingShops] currentUserId=$userId');
     if (userId == null) {
       if (mounted) setState(() => _profileLoaded = true);
       return;
@@ -139,9 +138,12 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
           .from('responders')
           .select()
           .eq('profile_id', userId)
-          .order('created_at', ascending: true);
+          .order('created_at', ascending: true)
+          .timeout(const Duration(seconds: 15));
 
       final shops = List<Map<String, dynamic>>.from(data);
+      debugPrint('[PingShops] loaded ${shops.length} shops, '
+          'types=${shops.map((s) => s['responder_type']).toList()}');
 
       // Try to restore the last active shop from SharedPreferences
       final prefs = await SharedPreferences.getInstance();
@@ -164,6 +166,7 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
         }
       }
     } catch (e) {
+      debugPrint('[PingShops] LOAD ERROR: $e');
       if (mounted) setState(() => _profileLoaded = true);
     }
   }
@@ -206,19 +209,6 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
       case 'repair':     return '\ud83d\udee0\ufe0f';
       case 'community':  return '\ud83d\udccd';
       default:           return '\ud83c\udfea';
-    }
-  }
-
-  String _typeLabel(String? type) {
-    switch (type) {
-      case 'auto_parts': return 'Auto Parts Shop';
-      case 'hardware':   return 'Hardware Store';
-      case 'rooms':      return 'Room / Boarding';
-      case 'rider':      return 'Rider / Courier';
-      case 'food':       return 'Food & Catering';
-      case 'repair':     return 'Repair & Services';
-      case 'community':  return 'Community Helper';
-      default:           return 'General Store';
     }
   }
 
@@ -411,106 +401,12 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
 
           // -- Request Feed -------------------------------------------------
           Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: Supabase.instance.client
-                  .from('requests')
-                  .stream(primaryKey: ['id'])
-                  .order('created_at', ascending: false),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: Color(0xFF004D40)));
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}', textAlign: TextAlign.center));
-                }
-
-                final allActive = (snapshot.data ?? []).where((r) {
-                  final status = r['status'];
-                  return status == 'open' || status == 'active' || status == 'matched';
-                }).toList();
-
-                final matchingCats = _matchingCategories();
-
-                final matchingRequests = allActive.where((r) {
-                  return matchingCats.isEmpty || matchingCats.contains(r['category'] ?? '');
-                }).toList();
-
-                final outsideCount = allActive.length - matchingRequests.length;
-                final requests = _showAll ? allActive : matchingRequests;
-                final showToggleBtn = matchingCats.isNotEmpty && outsideCount > 0;
-
-                if (requests.isEmpty) {
-                  return ListView(children: [
-                    const SizedBox(height: 60),
-                    Center(
-                      child: Column(children: [
-                        const Text('No matching Pings right now.',
-                            style: TextStyle(fontSize: 16, color: Color(0xFF64748B))),
-                        if (outsideCount > 0) ...[
-                          const SizedBox(height: 8),
-                          GestureDetector(
-                            onTap: () => setState(() => _showAll = true),
-                            child: Text(
-                              'Show $outsideCount other Ping${outsideCount > 1 ? 's' : ''} outside your category',
-                              style: const TextStyle(fontSize: 13, color: Color(0xFF004D40),
-                                  fontWeight: FontWeight.w600, decoration: TextDecoration.underline),
-                            ),
-                          ),
-                        ],
-                      ]),
-                    ),
-                  ]);
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: requests.length + (showToggleBtn ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index == requests.length) {
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 4, bottom: 24),
-                        child: InkWell(
-                          onTap: () => setState(() => _showAll = !_showAll),
-                          borderRadius: BorderRadius.circular(20),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  _showAll ? Icons.filter_alt_off_rounded : Icons.filter_alt_rounded,
-                                  size: 16,
-                                  color: const Color(0xFF004D40),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  _showAll
-                                    ? 'Showing all requests • Tap to filter to your category'
-                                    : 'Show $outsideCount more request${outsideCount > 1 ? 's' : ''} outside your category',
-                                  style: const TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF004D40)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-                    return _RequestCard(
-                      request: requests[index],
-                      shopName: activeShop?['shop_name'] ?? 'Unknown Shop',
-                      currentPosition: _currentPosition,
-                      dimmed: _showAll && matchingCats.isNotEmpty &&
-                              !matchingCats.contains(requests[index]['category'] ?? ''),
-                    );
-                  },
-                );
-              },
+            child: _LiveRequestsFeed(
+              matchingCategories: _matchingCategories(),
+              showAll: _showAll,
+              onShowAllChanged: (v) => setState(() => _showAll = v),
+              shopName: activeShop?['shop_name'] ?? 'Unknown Shop',
+              currentPosition: _currentPosition,
             ),
           ),
         ],
@@ -624,6 +520,313 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
   }
 }
 
+/// Live feed of customer Pings for the merchant.
+///
+/// The list is loaded with a plain query first so it renders even when the
+/// Realtime channel for `requests` is unavailable; the stream is then attached
+/// on top for live updates rather than being the only source of data.
+class _LiveRequestsFeed extends StatefulWidget {
+  final List<String> matchingCategories;
+  final bool showAll;
+  final ValueChanged<bool> onShowAllChanged;
+  final String shopName;
+  final Position? currentPosition;
+
+  const _LiveRequestsFeed({
+    required this.matchingCategories,
+    required this.showAll,
+    required this.onShowAllChanged,
+    required this.shopName,
+    this.currentPosition,
+  });
+
+  @override
+  State<_LiveRequestsFeed> createState() => _LiveRequestsFeedState();
+}
+
+class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
+  static const _visibleStatuses = {'open', 'active', 'matched'};
+
+  List<Map<String, dynamic>> _requests = [];
+  StreamSubscription<List<Map<String, dynamic>>>? _liveSub;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _liveSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() => _error = null);
+    try {
+      final data = await Supabase.instance.client
+          .from('requests')
+          .select()
+          .order('created_at', ascending: false)
+          .timeout(const Duration(seconds: 15));
+
+      debugPrint('[PingFeed] fetched ${data.length} rows from requests');
+      if (data.isNotEmpty) {
+        debugPrint('[PingFeed] statuses=${data.map((r) => r['status']).toSet()}');
+        debugPrint('[PingFeed] categories=${data.map((r) => r['category']).toSet()}');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _requests = _visibleOnly(data);
+        _loading = false;
+      });
+      debugPrint('[PingFeed] visible after status filter: ${_requests.length}');
+      _listenForLiveUpdates();
+    } catch (e) {
+      debugPrint('[PingFeed] FETCH ERROR: $e');
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
+  }
+
+  /// Realtime is additive: if the channel never delivers, the fetched feed
+  /// stays on screen instead of the view hanging on a spinner.
+  void _listenForLiveUpdates() {
+    _liveSub?.cancel();
+    _liveSub = Supabase.instance.client
+        .from('requests')
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: false)
+        .listen(
+          (rows) {
+            if (mounted) setState(() => _requests = _visibleOnly(rows));
+          },
+          onError: (_) {},
+        );
+  }
+
+  List<Map<String, dynamic>> _visibleOnly(List<dynamic> rows) => rows
+      .cast<Map<String, dynamic>>()
+      .where((r) {
+        final st = (r['status'] ?? 'open').toString().trim().toLowerCase();
+        return _visibleStatuses.contains(st) || st == 'pending' || st == 'new';
+      })
+      .toList();
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF004D40)));
+    }
+
+    if (_error != null) {
+      return ListView(children: [
+        const SizedBox(height: 60),
+        Center(
+          child: Column(children: [
+            const Icon(Icons.cloud_off_rounded, size: 40, color: Color(0xFF94A3B8)),
+            const SizedBox(height: 12),
+            const Text('Could not load Pings.',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+            ),
+            const SizedBox(height: 14),
+            ElevatedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF004D40),
+                foregroundColor: Colors.white,
+                minimumSize: const Size(120, 40),
+              ),
+            ),
+          ]),
+        ),
+      ]);
+    }
+
+    final matchingCats = widget.matchingCategories;
+    final allActive = List<Map<String, dynamic>>.from(_requests);
+
+    final matchingRequests = allActive.where((r) {
+      return matchingCats.isEmpty || matchingCats.contains(r['category'] ?? '');
+    }).toList();
+
+    final outsideRequests = allActive.where((r) {
+      return matchingCats.isNotEmpty && !matchingCats.contains(r['category'] ?? '');
+    }).toList();
+
+    // Never strand the merchant on a blank list: if nothing matches their shop
+    // category but Pings do exist, show everything instead of rendering zero
+    // rows. Reachable with legacy categories such as 'Community Updates', which
+    // no _matchingCategories() branch lists.
+    final autoFellBack = matchingRequests.isEmpty && allActive.isNotEmpty;
+
+    // When showing all, place category-matched requests first
+    final requests = (widget.showAll || autoFellBack)
+        ? [...matchingRequests, ...outsideRequests]
+        : matchingRequests;
+    final outsideCount = outsideRequests.length;
+
+    debugPrint('[PingFeed] shopCats=$matchingCats totalActive=${allActive.length} '
+        'matching=${matchingRequests.length} outside=$outsideCount rendering=${requests.length}');
+
+    if (allActive.isEmpty) {
+      return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 80),
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.radar_rounded, size: 48, color: Color(0xFFCBD5E1)),
+                  SizedBox(height: 12),
+                  Text('No active customer Pings right now',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+                  SizedBox(height: 6),
+                  Text('When customers broadcast a request, it will appear here live.',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                ],
+              ),
+            ),
+          ],
+      );
+    }
+
+    return Container(
+      color: Colors.transparent,
+      child: Column(
+        children: [
+          // Quick Filter Toggle Pill Bar
+          if (matchingCats.isNotEmpty && allActive.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: const Color(0xFFF1F5F9),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          GestureDetector(
+                            onTap: () => widget.onShowAllChanged(true),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: widget.showAll ? const Color(0xFF004D40) : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: widget.showAll ? const Color(0xFF004D40) : const Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              child: Text(
+                                'All Pings (${allActive.length})',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: widget.showAll ? Colors.white : const Color(0xFF475569),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => widget.onShowAllChanged(false),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: !widget.showAll ? const Color(0xFF004D40) : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: !widget.showAll ? const Color(0xFF004D40) : const Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    'Shop Category (${matchingRequests.length})',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: !widget.showAll ? Colors.white : const Color(0xFF475569),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          if (autoFellBack)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFDE68A)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFFD97706)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No Pings match your shop category yet — showing all '
+                      '${allActive.length} active Ping${allActive.length > 1 ? 's' : ''}.',
+                      style: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFB45309)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          Expanded(
+            child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              itemCount: requests.length,
+              itemBuilder: (context, index) {
+                return _RequestCard(
+                  request: requests[index],
+                  shopName: widget.shopName,
+                  currentPosition: widget.currentPosition,
+                  dimmed: !autoFellBack && widget.showAll && matchingCats.isNotEmpty &&
+                          !matchingCats.contains(requests[index]['category'] ?? ''),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RequestCard extends StatelessWidget {
   final Map<String, dynamic> request;
   final String shopName;
@@ -644,28 +847,6 @@ class _RequestCard extends StatelessWidget {
       case 'reserve':  return '📅 Inquire / Reserve';
       case 'status':   return '📸 Live Photo / Status';
       default:         return '✨ $type';
-    }
-  }
-
-  Color _fulfillmentBg(String type) {
-    switch (type) {
-      case 'delivery': return const Color(0xFFFFF7ED);
-      case 'pickup':   return const Color(0xFFEFF6FF);
-      case 'visit':    return const Color(0xFFF5F3FF);
-      case 'reserve':  return const Color(0xFFF0FDF4);
-      case 'status':   return const Color(0xFFFDF4FF);
-      default:         return const Color(0xFFF8FAFC);
-    }
-  }
-
-  Color _fulfillmentFg(String type) {
-    switch (type) {
-      case 'delivery': return const Color(0xFFEA580C);
-      case 'pickup':   return const Color(0xFF2563EB);
-      case 'visit':    return const Color(0xFF7C3AED);
-      case 'reserve':  return const Color(0xFF059669);
-      case 'status':   return const Color(0xFF9333EA);
-      default:         return const Color(0xFF64748B);
     }
   }
 
@@ -934,6 +1115,7 @@ class _RequestCard extends StatelessWidget {
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 44),
                             backgroundColor: Colors.transparent,
                             shadowColor: Colors.transparent,
                             foregroundColor: Colors.white,

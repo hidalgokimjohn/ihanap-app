@@ -72,11 +72,14 @@ class _LoadingSplashScreenState extends State<LoadingSplashScreen> {
     if (_isNavigating) return;
     _isNavigating = true;
 
-    if (widget.onInitializationComplete != null) {
-      widget.onInitializationComplete!();
-    } else {
-      _performSmoothTransition(session, primaryRole);
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.onInitializationComplete != null) {
+        widget.onInitializationComplete!();
+      } else {
+        _performSmoothTransition(session, primaryRole);
+      }
+    });
   }
 
   /// Smooth PageRouteBuilder fade transition to destination screen
