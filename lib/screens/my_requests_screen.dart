@@ -1,9 +1,24 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
+import '../utils/transaction_number.dart';
 import '../widgets/order_summary_sheet.dart';
+
+bool _isOrderCompleted(Map<String, dynamic> req) {
+  final raw = req['tags'];
+  Map<String, dynamic> tags = {};
+  if (raw is Map) {
+    tags = Map<String, dynamic>.from(raw);
+  } else if (raw is String && raw.isNotEmpty) {
+    try {
+      tags = Map<String, dynamic>.from(jsonDecode(raw));
+    } catch (_) {}
+  }
+  return tags['order_stage'] == 'completed';
+}
 
 class MyRequestsScreen extends StatefulWidget {
   final String searchQuery;
@@ -19,6 +34,75 @@ class MyRequestsScreen extends StatefulWidget {
 
 class _MyRequestsScreenState extends State<MyRequestsScreen> {
   final Set<String> _dismissedIds = {};
+  String _filter = 'active'; // 'active' | 'matched'
+
+  StreamSubscription<List<Map<String, dynamic>>>? _sub;
+  List<Map<String, dynamic>> _pings = [];
+  bool _loading = true;
+  String? _error;
+
+  Timer? _debounce;
+  List<Map<String, dynamic>>? _pendingSnapshot;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribe();
+  }
+
+  void _subscribe() {
+    final userId = AuthService.currentUserId;
+    if (userId == null) return;
+    _sub = Supabase.instance.client
+        .from('requests')
+        .stream(primaryKey: ['id'])
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .listen(_onSnapshot, onError: (e) {
+      if (mounted) setState(() => _error = e.toString());
+    });
+  }
+
+  // Realtime pushes a fresh full snapshot on every change to any of the
+  // user's requests, even ones unrelated to what's visible. Debounce
+  // bursts and skip the rebuild entirely when nothing render-relevant
+  // actually changed, so the list doesn't flash on every DB event.
+  void _onSnapshot(List<Map<String, dynamic>> data) {
+    _pendingSnapshot = data;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      final incoming = _pendingSnapshot;
+      if (incoming == null) return;
+      if (!_loading && _isSameRenderState(_pings, incoming)) return;
+      setState(() {
+        _pings = incoming;
+        _loading = false;
+      });
+    });
+  }
+
+  bool _isSameRenderState(List<Map<String, dynamic>> a, List<Map<String, dynamic>> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final ra = a[i];
+      final rb = b[i];
+      if (ra['id'] != rb['id'] ||
+          ra['status'] != rb['status'] ||
+          ra['accepted_offer_id'] != rb['accepted_offer_id'] ||
+          ra['updated_at'] != rb['updated_at']) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _sub?.cancel();
+    super.dispose();
+  }
 
   String _formatDateTime(String? iso) {
     if (iso == null) return '';
@@ -138,79 +222,158 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
       return const Center(child: Text('Not logged in.'));
     }
 
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: Supabase.instance.client
-          .from('requests')
-          .stream(primaryKey: ['id'])
-          .eq('user_id', userId)
-          .order('created_at', ascending: false),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF004D40)));
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF004D40)));
+    }
+    if (_error != null) {
+      return Center(child: Text('Error: $_error'));
+    }
 
-        var rawRequests = snapshot.data ?? [];
+    final rawRequests = _pings;
 
-        // Optimistically filter out locally dismissed items & cancelled pings to declutter
-        var requests = rawRequests.where((req) {
+        // Strip cancelled and locally dismissed items
+        final allPings = rawRequests.where((req) {
           final id = req['id'].toString();
           final status = (req['status'] ?? '').toString().toLowerCase();
           if (status == 'cancelled') return false;
           return !_dismissedIds.contains(id);
         }).toList();
 
+        // Split by status; a 'matched' ping further splits into in-progress
+        // vs completed based on tags.order_stage so finished orders move out
+        // of the way instead of piling up in "Matched".
+        final activePings = allPings.where((req) {
+          final s = (req['status'] ?? '').toString().toLowerCase();
+          return s == 'open' || s == 'active';
+        }).toList();
+        final matchedRaw = allPings.where((req) {
+          return (req['status'] ?? '').toString().toLowerCase() == 'matched';
+        }).toList();
+        final matchedPings = matchedRaw.where((req) => !_isOrderCompleted(req)).toList();
+        final completedPings = matchedRaw.where(_isOrderCompleted).toList();
+
+        // Apply search filter to whichever tab is active
+        var requests = switch (_filter) {
+          'matched' => matchedPings,
+          'completed' => completedPings,
+          _ => activePings,
+        };
         if (widget.searchQuery.trim().isNotEmpty) {
           final query = widget.searchQuery.toLowerCase().trim();
           requests = requests.where((req) {
-            final category = (req['category'] ?? '').toString().toLowerCase();
+            final category    = (req['category'] ?? '').toString().toLowerCase();
             final subCategory = (req['sub_category'] ?? '').toString().toLowerCase();
-            final item = (req['item_name'] ?? req['title'] ?? '').toString().toLowerCase();
-            final notes = (req['notes'] ?? req['description'] ?? '').toString().toLowerCase();
-            final status = (req['status'] ?? '').toString().toLowerCase();
-            final tags = (req['tags'] ?? '').toString().toLowerCase();
-            return category.contains(query) || subCategory.contains(query) || item.contains(query) || notes.contains(query) || status.contains(query) || tags.contains(query);
+            final item        = (req['item_name'] ?? req['title'] ?? '').toString().toLowerCase();
+            final notes       = (req['notes'] ?? req['description'] ?? '').toString().toLowerCase();
+            final tags        = (req['tags'] ?? '').toString().toLowerCase();
+            return category.contains(query) || subCategory.contains(query) ||
+                   item.contains(query) || notes.contains(query) || tags.contains(query);
           }).toList();
         }
 
-        if (requests.isEmpty) {
-          final isFilter = widget.searchQuery.trim().isNotEmpty;
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Icon(isFilter ? Icons.search_off_rounded : Icons.bolt_rounded, size: 40, color: const Color(0xFF94A3B8)),
-                ),
-                const SizedBox(height: 12),
-                Text(isFilter ? 'No matching Pings found' : 'No active Pings yet',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
-                const SizedBox(height: 4),
-                Text(isFilter ? 'Try searching for a different item or category.' : 'Tap the button below to send your first Ping!',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-              ],
-            ),
-          );
-        }
+        final isSearching = widget.searchQuery.trim().isNotEmpty;
 
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          itemCount: requests.length,
-          itemBuilder: (context, index) {
+        return Column(
+          children: [
+            // ── Filter tabs ──────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _FilterTab(
+                      label: 'Active',
+                      count: activePings.length,
+                      selected: _filter == 'active',
+                      onTap: () => setState(() => _filter = 'active'),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterTab(
+                      label: 'Matched',
+                      count: matchedPings.length,
+                      selected: _filter == 'matched',
+                      onTap: () => setState(() => _filter = 'matched'),
+                      badge: matchedPings.isNotEmpty,
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterTab(
+                      label: 'Completed',
+                      count: completedPings.length,
+                      selected: _filter == 'completed',
+                      onTap: () => setState(() => _filter = 'completed'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── List ────────────────────────────────────────────────
+            if (requests.isEmpty)
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Icon(
+                          isSearching
+                              ? Icons.search_off_rounded
+                              : switch (_filter) {
+                                  'matched' => Icons.verified_rounded,
+                                  'completed' => Icons.task_alt_rounded,
+                                  _ => Icons.bolt_rounded,
+                                },
+                          size: 40,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        isSearching
+                            ? 'No matching Pings found'
+                            : switch (_filter) {
+                                'matched' => 'No matched Pings yet',
+                                'completed' => 'No completed Pings yet',
+                                _ => 'No active Pings yet',
+                              },
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isSearching
+                            ? 'Try searching for a different item or category.'
+                            : switch (_filter) {
+                                'matched' => 'Accepted offers will appear here once you match with a merchant.',
+                                'completed' => 'Finished transactions will be archived here.',
+                                _ => 'Tap Send Ping below to broadcast your first request!',
+                              },
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(14, 6, 14, 80),
+                  itemCount: requests.length,
+                  itemBuilder: (context, index) {
             final req = requests[index];
             final reqId = (req['id'] ?? index).toString();
             final isOpen = req['status'] == 'active' || req['status'] == 'open';
 
-            return Dismissible(
+            return RepaintBoundary(
+              key: ValueKey('rb_$reqId'),
+              child: Dismissible(
               key: Key('ping_$reqId'),
               direction: isOpen ? DismissDirection.endToStart : DismissDirection.none,
               confirmDismiss: (direction) async {
@@ -288,11 +451,13 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 },
                 formattedDate: _formatDateTime(req['created_at']),
               ),
+            ),
             );
           },
+                ),
+              ),
+          ],
         );
-      },
-    );
   }
 }
 
@@ -312,6 +477,7 @@ class RequestWithOffersCard extends StatelessWidget {
 
   Color _statusColor(String s) {
     switch (s) {
+      case 'completed': return const Color(0xFF15803D);
       case 'matched':   return const Color(0xFF059669);
       case 'cancelled': return const Color(0xFF94A3B8);
       default:          return const Color(0xFFD97706);
@@ -320,6 +486,7 @@ class RequestWithOffersCard extends StatelessWidget {
 
   Color _statusBg(String s) {
     switch (s) {
+      case 'completed': return const Color(0xFFDCFCE7);
       case 'matched':   return const Color(0xFFF0FDF4);
       case 'cancelled': return const Color(0xFFF1F5F9);
       default:          return const Color(0xFFFFFBEB);
@@ -328,6 +495,7 @@ class RequestWithOffersCard extends StatelessWidget {
 
   String _statusLabel(String s) {
     switch (s) {
+      case 'completed': return 'Completed';
       case 'matched':   return 'Matched';
       case 'cancelled': return 'Cancelled';
       default:          return 'Open';
@@ -336,6 +504,7 @@ class RequestWithOffersCard extends StatelessWidget {
 
   IconData _statusIcon(String s) {
     switch (s) {
+      case 'completed': return Icons.task_alt_rounded;
       case 'matched':   return Icons.verified_rounded;
       case 'cancelled': return Icons.cancel_rounded;
       default:          return Icons.radio_button_checked_rounded;
@@ -347,6 +516,9 @@ class RequestWithOffersCard extends StatelessWidget {
       case 'delivery': return 'Delivery';
       case 'visit':    return 'On-Site Visit';
       case 'status':   return 'Status Check';
+      case 'onsite':   return 'Come to Me';
+      case 'go_to':    return 'At a Location';
+      case 'remote':   return 'Remote Help';
       default:         return 'Store Pickup';
     }
   }
@@ -376,10 +548,12 @@ class RequestWithOffersCard extends StatelessWidget {
     final isOpen          = status == 'active' || status == 'open';
     final isMatched       = status == 'matched';
     final tags            = _parseTags(request['tags']);
+    final effectiveStatus = (isMatched && tags['order_stage'] == 'completed') ? 'completed' : status;
 
     final vehicleModel  = tags['vehicle_model'] ?? tags['spec_1'];
     final partSpec      = tags['part_spec'] ?? tags['spec_2'];
     final aircon        = tags['aircon_preferred'] == true;
+    final txn           = transactionNumber(request['id']);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -392,11 +566,37 @@ class RequestWithOffersCard extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header Row ──────────────────────────────────────────
+            // ── Status leads — the first thing a requester wants to know
+            // when scanning their own Pings is "where does this stand?" ──
+            Row(
+              children: [
+                Icon(_statusIcon(effectiveStatus), size: 15, color: _statusColor(effectiveStatus)),
+                const SizedBox(width: 6),
+                Text(
+                  _statusLabel(effectiveStatus),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: _statusColor(effectiveStatus),
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  formattedDate,
+                  style: GoogleFonts.plusJakartaSans(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+            const Divider(color: Color(0xFFF1F5F9), height: 1),
+            const SizedBox(height: 14),
+
+            // ── What was asked ────────────────────────────────────────
             Row(
               children: [
                 Expanded(
@@ -418,48 +618,22 @@ class RequestWithOffersCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                // Status pill
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: _statusBg(status),
-                    borderRadius: BorderRadius.circular(50),
+                if (subCategory != null && subCategory.toString().isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                    child: Text(
+                      subCategory.toString(),
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(_statusIcon(status), size: 11, color: _statusColor(status)),
-                      const SizedBox(width: 4),
-                      Text(
-                        _statusLabel(status),
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: _statusColor(status),
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                ],
               ],
             ),
-
-            if (subCategory != null && subCategory.toString().isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFBEB),
-                  borderRadius: BorderRadius.circular(50),
-                ),
-                child: Text(
-                  subCategory.toString(),
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
-                ),
-              ),
-            ],
 
             const SizedBox(height: 12),
 
@@ -520,7 +694,7 @@ class RequestWithOffersCard extends StatelessWidget {
             const Divider(color: Color(0xFFEFF2F6), height: 1),
             const SizedBox(height: 14),
 
-            // ── Budget + Date ────────────────────────────────────────
+            // ── Budget + Reference ────────────────────────────────────
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -549,15 +723,16 @@ class RequestWithOffersCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                Row(
-                  children: [
-                    const Icon(Icons.schedule_rounded, size: 12, color: Color(0xFFCBD5E1)),
-                    const SizedBox(width: 4),
-                    Text(
-                      formattedDate,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
-                    ),
-                  ],
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    txn,
+                    style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w700, letterSpacing: 0.3),
+                  ),
                 ),
               ],
             ),
@@ -860,6 +1035,78 @@ class _SpecChip extends StatelessWidget {
           const SizedBox(width: 5),
           Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor)),
         ],
+      ),
+    );
+  }
+}
+
+class _FilterTab extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected;
+  final bool badge;
+  final VoidCallback onTap;
+
+  const _FilterTab({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+    this.badge = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF004D40) : Colors.white,
+          borderRadius: BorderRadius.circular(50),
+          border: Border.all(
+            color: selected ? const Color(0xFF004D40) : const Color(0xFFE2E8F0),
+          ),
+          boxShadow: selected
+              ? [BoxShadow(color: const Color(0xFF004D40).withValues(alpha: 0.18), blurRadius: 8, offset: const Offset(0, 3))]
+              : [],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : const Color(0xFF64748B),
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? Colors.white.withValues(alpha: 0.25)
+                      : (badge ? const Color(0xFF10B981) : const Color(0xFFE2E8F0)),
+                  borderRadius: BorderRadius.circular(50),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: selected
+                        ? Colors.white
+                        : (badge ? Colors.white : const Color(0xFF64748B)),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

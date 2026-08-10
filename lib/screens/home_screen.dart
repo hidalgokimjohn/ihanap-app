@@ -8,6 +8,7 @@ import '../services/nearby_shops_service.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/nearby_shops_banner.dart';
 import '../widgets/notification_bell.dart';
+import '../widgets/premium_button.dart';
 import 'account/account_center_screen.dart';
 import 'community_check_screen.dart';
 import 'create_request_cupertino_screen.dart';
@@ -422,38 +423,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const NotificationBell(),
 
             // Center Action: Send Ping FAB
-            GestureDetector(
-              onTap: () {
+            PremiumButton(
+              onPressed: () {
                 Navigator.of(context).push(
                   CupertinoPageRoute(
                     builder: (_) => const CreateRequestCupertinoScreen(),
                   ),
                 );
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF004D40), Color(0xFF00695C)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 22),
+              borderRadius: BorderRadius.circular(30),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF004D40), Color(0xFF00695C)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: const [
+                BoxShadow(color: Color(0x30004D40), blurRadius: 12, offset: Offset(0, 4)),
+              ],
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.bolt_rounded, size: 20, color: Color(0xFFFF8C42)),
+                  SizedBox(width: 6),
+                  Text(
+                    'Send Ping',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white),
                   ),
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0x30004D40), blurRadius: 12, offset: Offset(0, 4)),
-                  ],
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.bolt_rounded, size: 20, color: Color(0xFFFF8C42)),
-                    SizedBox(width: 6),
-                    Text(
-                      'Send Ping',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white),
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
 

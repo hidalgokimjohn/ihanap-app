@@ -6,10 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
+import '../utils/transaction_number.dart';
 import '../widgets/offer_bottom_sheet.dart';
 import '../widgets/order_summary_sheet.dart';
 import '../widgets/notification_bell.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/pinger_header.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'account/account_center_screen.dart';
 import 'responder_registration_screen.dart';
@@ -29,7 +31,6 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
   List<Map<String, dynamic>> _shops = [];
   int _activeShopIndex = 0;
   bool _profileLoaded = false;
-  bool _showAll = true;
   int _tabIndex = 0; // 0 = Live Requests, 1 = My Offers
 
   Map<String, dynamic>? get _activeShop =>
@@ -217,7 +218,6 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
     await prefs.setString('responder_type',      shop['responder_type'] ?? '');
     setState(() {
       _activeShopIndex = index;
-      _showAll = false;
     });
   }
 
@@ -425,8 +425,6 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
           Expanded(
             child: _LiveRequestsFeed(
               matchingCategories: _matchingCategories(),
-              showAll: _showAll,
-              onShowAllChanged: (v) => setState(() => _showAll = v),
               shopName: activeShop?['shop_name'] ?? 'Unknown Shop',
               currentPosition: _currentPosition,
             ),
@@ -549,15 +547,11 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
 /// on top for live updates rather than being the only source of data.
 class _LiveRequestsFeed extends StatefulWidget {
   final List<String> matchingCategories;
-  final bool showAll;
-  final ValueChanged<bool> onShowAllChanged;
   final String shopName;
   final Position? currentPosition;
 
   const _LiveRequestsFeed({
     required this.matchingCategories,
-    required this.showAll,
-    required this.onShowAllChanged,
     required this.shopName,
     this.currentPosition,
   });
@@ -701,28 +695,12 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
     final matchingCats = widget.matchingCategories;
     final allActive = List<Map<String, dynamic>>.from(_requests);
 
-    final matchingRequests = allActive.where((r) {
+    final requests = allActive.where((r) {
       return matchingCats.isEmpty || matchingCats.contains(r['category'] ?? '');
     }).toList();
 
-    final outsideRequests = allActive.where((r) {
-      return matchingCats.isNotEmpty && !matchingCats.contains(r['category'] ?? '');
-    }).toList();
-
-    // Never strand the merchant on a blank list: if nothing matches their shop
-    // category but Pings do exist, show everything instead of rendering zero
-    // rows. Reachable with legacy categories such as 'Community Updates', which
-    // no _matchingCategories() branch lists.
-    final autoFellBack = matchingRequests.isEmpty && allActive.isNotEmpty;
-
-    // When showing all, place category-matched requests first
-    final requests = (widget.showAll || autoFellBack)
-        ? [...matchingRequests, ...outsideRequests]
-        : matchingRequests;
-    final outsideCount = outsideRequests.length;
-
     debugPrint('[PingFeed] shopCats=$matchingCats totalActive=${allActive.length} '
-        'matching=${matchingRequests.length} outside=$outsideCount rendering=${requests.length}');
+        'rendering=${requests.length}');
 
     if (allActive.isEmpty) {
       return ListView(
@@ -746,105 +724,38 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
       );
     }
 
+    if (requests.isEmpty) {
+      return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 80),
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.filter_alt_off_rounded, size: 48, color: Color(0xFFCBD5E1)),
+                  SizedBox(height: 12),
+                  Text('No Pings for your category right now',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+                  SizedBox(height: 6),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      "There are active Pings nearby, just none matching this shop's category yet.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+      );
+    }
+
     return Container(
       color: Colors.transparent,
       child: Column(
         children: [
-          // Quick Filter Toggle Pill Bar
-          if (matchingCats.isNotEmpty && allActive.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: const Color(0xFFF1F5F9),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () => widget.onShowAllChanged(true),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: widget.showAll ? const Color(0xFF004D40) : Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: widget.showAll ? const Color(0xFF004D40) : const Color(0xFFCBD5E1),
-                                ),
-                              ),
-                              child: Text(
-                                'All Pings (${allActive.length})',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: widget.showAll ? Colors.white : const Color(0xFF475569),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () => widget.onShowAllChanged(false),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: !widget.showAll ? const Color(0xFF004D40) : Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: !widget.showAll ? const Color(0xFF004D40) : const Color(0xFFCBD5E1),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    'Shop Category (${matchingRequests.length})',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: !widget.showAll ? Colors.white : const Color(0xFF475569),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          if (autoFellBack)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFFDE68A)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFFD97706)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'No Pings match your shop category yet — showing all '
-                      '${allActive.length} active Ping${allActive.length > 1 ? 's' : ''}.',
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFB45309)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
           Expanded(
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -856,8 +767,6 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
                   request: req,
                   shopName: widget.shopName,
                   currentPosition: widget.currentPosition,
-                  dimmed: !autoFellBack && widget.showAll && matchingCats.isNotEmpty &&
-                          !matchingCats.contains(req['category'] ?? ''),
                   alreadyOffered: _offeredRequestIds.contains(req['id']?.toString()),
                   onOfferSent: (requestId) {
                     setState(() => _offeredRequestIds.add(requestId));
@@ -876,7 +785,6 @@ class _RequestCard extends StatelessWidget {
   final Map<String, dynamic> request;
   final String shopName;
   final Position? currentPosition;
-  final bool dimmed;
   final bool alreadyOffered;
   final void Function(String requestId)? onOfferSent;
 
@@ -884,7 +792,6 @@ class _RequestCard extends StatelessWidget {
     required this.request,
     required this.shopName,
     this.currentPosition,
-    this.dimmed = false,
     this.alreadyOffered = false,
     this.onOfferSent,
   });
@@ -896,6 +803,9 @@ class _RequestCard extends StatelessWidget {
       case 'visit':    return '🔧 Schedule Site Visit';
       case 'reserve':  return '📅 Inquire / Reserve';
       case 'status':   return '📸 Live Photo / Status';
+      case 'onsite':   return '🏠 Come to Them';
+      case 'go_to':    return '📍 Go to Location';
+      case 'remote':   return '📱 Remote Help';
       default:         return '✨ $type';
     }
   }
@@ -920,6 +830,7 @@ class _RequestCard extends StatelessWidget {
     final vehicleModel    = tags['vehicle_model'] ?? tags['spec_1'] ?? '';
     final partSpec        = tags['part_spec'] ?? tags['spec_2'] ?? '';
     final airconPreferred = tags['aircon_preferred'] == true;
+    final isCompleted     = isMatched && tags['order_stage'] == 'completed';
 
     String distanceLabel = '📍 Nearby';
     if (currentPosition != null && tags['lat'] != null && tags['lng'] != null) {
@@ -950,9 +861,7 @@ class _RequestCard extends StatelessWidget {
                       : const Color(0xFFE2E8F0);
     final borderWidth = (isMatched || alreadyOffered) ? 1.5 : 1.0;
 
-    return Opacity(
-      opacity: dimmed ? 0.55 : 1.0,
-      child: Card(
+    return Card(
         margin: const EdgeInsets.only(bottom: 14),
         elevation: 0,
         color: cardColor,
@@ -985,11 +894,43 @@ class _RequestCard extends StatelessWidget {
           },
           borderRadius: BorderRadius.circular(24),
             child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header Row: Category chip (Left) + Distance chip (Right)
+                // ── Who's asking — leads the card, like any marketplace listing ──
+                PingerHeader(
+                  userId: request['user_id']?.toString(),
+                  createdAt: request['created_at']?.toString(),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.near_me_rounded, size: 11, color: Color(0xFF004D40)),
+                        const SizedBox(width: 4),
+                        Text(
+                          distanceLabel.replaceAll('📍 ', ''),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF004D40),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+                const Divider(color: Color(0xFFF1F5F9), height: 1),
+                const SizedBox(height: 14),
+
+                // ── What they need ────────────────────────────────────
                 Row(
                   children: [
                     Expanded(
@@ -1017,50 +958,26 @@ class _RequestCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0FDF4),
-                        borderRadius: BorderRadius.circular(50),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.near_me_rounded, size: 11, color: Color(0xFF004D40)),
-                          const SizedBox(width: 4),
-                          Text(
-                            distanceLabel.replaceAll('📍 ', ''),
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF004D40),
-                            ),
+                    if (subCategory.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        child: Text(
+                          subCategory,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFB45309),
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
-
-                if (subCategory.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFFBEB),
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    child: Text(
-                      subCategory,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFFB45309),
-                      ),
-                    ),
-                  ),
-                ],
 
                 const SizedBox(height: 12),
 
@@ -1135,6 +1052,18 @@ class _RequestCard extends StatelessWidget {
                               letterSpacing: -0.5,
                             ),
                           ),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              transactionNumber(request['id']),
+                              style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w700, letterSpacing: 0.3),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1144,8 +1073,8 @@ class _RequestCard extends StatelessWidget {
                     // ── Action Button ──────────────────────────
                     if (isMatched)
                       _StatusButton(
-                        label: 'Accepted',
-                        icon: Icons.verified_rounded,
+                        label: isCompleted ? 'Completed' : 'Accepted',
+                        icon: isCompleted ? Icons.task_alt_rounded : Icons.verified_rounded,
                         bg: const Color(0xFF10B981),
                         fg: Colors.white,
                       )
@@ -1203,7 +1132,6 @@ class _RequestCard extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }

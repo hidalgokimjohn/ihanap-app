@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
+import 'pinger_header.dart';
 
 class OfferBottomSheet extends StatefulWidget {
   final String requestId;
@@ -195,6 +196,13 @@ class _OfferBottomSheetState extends State<OfferBottomSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    PingerHeader(
+                      userId: widget.request?['user_id']?.toString(),
+                      createdAt: widget.request?['created_at']?.toString(),
+                    ),
+                    const SizedBox(height: 12),
+                    const Divider(color: Color(0xFFE2E8F0), height: 1),
+                    const SizedBox(height: 12),
                     const Text('Customer Ping', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     Text(_description, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),

@@ -212,6 +212,9 @@ class _ManageShopsScreenState extends State<ManageShopsScreen> {
                     final category = _typeLabel(shop['responder_type']);
                     final emoji = _typeEmoji(shop['responder_type']);
                     final tagline = shop['description'] ?? 'No tagline provided';
+                    final contactNumber = (shop['contact_number'] ?? '').toString();
+                    final address = (shop['address'] ?? '').toString();
+                    final logoUrl = (shop['logo_url'] ?? '').toString();
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -233,13 +236,18 @@ class _ManageShopsScreenState extends State<ManageShopsScreen> {
                                 Container(
                                   width: 44,
                                   height: 44,
+                                  clipBehavior: Clip.antiAlias,
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFE2F0F0),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: Center(
-                                    child: Text(emoji, style: const TextStyle(fontSize: 22)),
-                                  ),
+                                  child: logoUrl.isNotEmpty
+                                      ? Image.network(
+                                          logoUrl,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
+                                        )
+                                      : Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
                                 ),
                                 const SizedBox(width: 14),
                                 Expanded(
@@ -278,15 +286,45 @@ class _ManageShopsScreenState extends State<ManageShopsScreen> {
                                 ),
                               ],
                             ),
-                            if (tagline.isNotEmpty) ...[
+                            if (contactNumber.isNotEmpty || address.isNotEmpty || tagline.isNotEmpty) ...[
                               const SizedBox(height: 12),
                               const Divider(height: 1, color: Color(0xFFF1F5F9)),
                               const SizedBox(height: 12),
+                            ],
+                            if (contactNumber.isNotEmpty) ...[
+                              Row(
+                                children: [
+                                  const Icon(Icons.phone_rounded, size: 14, color: Color(0xFF004D40)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    contactNumber,
+                                    style: const TextStyle(fontSize: 13, color: Color(0xFF004D40), fontWeight: FontWeight.w700),
+                                  ),
+                                ],
+                              ),
+                              if (address.isNotEmpty || tagline.isNotEmpty) const SizedBox(height: 8),
+                            ],
+                            if (address.isNotEmpty) ...[
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(Icons.location_on_rounded, size: 14, color: Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      address,
+                                      style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (tagline.isNotEmpty) const SizedBox(height: 8),
+                            ],
+                            if (tagline.isNotEmpty)
                               Text(
                                 tagline,
                                 style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
                               ),
-                            ],
                           ],
                         ),
                       ),

@@ -167,23 +167,6 @@ class _NearbyShopsBannerState extends State<NearbyShopsBanner>
                   ),
           ),
 
-          const SizedBox(width: 8),
-
-          // Shop category preview icons (up to 4)
-          if (count > 0)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: _shops!
-                  .take(4)
-                  .map((s) => Padding(
-                        padding: const EdgeInsets.only(left: 2),
-                        child: Text(
-                          NearbyShopsService.typeEmoji(s['responder_type'] as String?),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ))
-                  .toList(),
-            ),
         ],
       ),
     );

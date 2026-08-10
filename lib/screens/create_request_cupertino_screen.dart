@@ -68,6 +68,9 @@ class _CreateRequestCupertinoScreenState
       case 'Community Check':
         _fulfillmentType = 'status';
         break;
+      case 'Community Helpers':
+        _fulfillmentType = 'onsite';
+        break;
       case 'Express Rider':
       case 'Food & Catering':
         _fulfillmentType = 'delivery';
@@ -436,6 +439,13 @@ class _CreateRequestCupertinoScreenState
           {'id': 'status', 'label': 'Real-Time Status Check', 'icon': Icons.pin_drop_rounded},
         ];
         break;
+      case 'Community Helpers':
+        options = [
+          {'id': 'onsite', 'label': 'Come to Me',  'icon': Icons.home_rounded},
+          {'id': 'go_to',  'label': 'At a Place',  'icon': Icons.location_on_rounded},
+          {'id': 'remote', 'label': 'Remote Help', 'icon': Icons.phone_in_talk_rounded},
+        ];
+        break;
       case 'Express Rider':
       case 'Food & Catering':
         options = [
@@ -664,7 +674,7 @@ class _CreateRequestCupertinoScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'FULFILLMENT METHOD',
+                    _category == 'Community Helpers' ? 'WHERE DO YOU NEED HELP?' : 'FULFILLMENT METHOD',
                     style: GoogleFonts.outfit(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
