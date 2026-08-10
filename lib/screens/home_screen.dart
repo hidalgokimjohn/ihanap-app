@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import '../services/nearby_shops_service.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/community_check_shortcut.dart';
 import '../widgets/nearby_shops_banner.dart';
 import '../widgets/notification_bell.dart';
 import '../widgets/premium_button.dart';
@@ -177,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
         actions: [
+          const CommunityCheckShortcut(),
           if (_tabIndex == 0)
             IconButton(
               icon: Icon(
@@ -514,7 +516,7 @@ class _CategoryCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            if (dbCategory == 'Community Updates') {
+            if (dbCategory == 'Community Check') {
               Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const CommunityCheckScreen()));
               return;

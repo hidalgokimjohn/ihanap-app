@@ -555,6 +555,12 @@ class RequestWithOffersCard extends StatelessWidget {
     final aircon        = tags['aircon_preferred'] == true;
     final txn           = transactionNumber(request['id']);
 
+    final authUser   = AuthService.currentUser;
+    final posterName = (authUser?.userMetadata?['full_name'] as String?)?.trim().isNotEmpty == true
+        ? authUser!.userMetadata!['full_name'] as String
+        : (authUser?.email ?? 'You');
+    final posterInitial = posterName.isNotEmpty ? posterName[0].toUpperCase() : 'Y';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
@@ -570,24 +576,79 @@ class RequestWithOffersCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Status leads — the first thing a requester wants to know
-            // when scanning their own Pings is "where does this stand?" ──
+            // ── Who posted it, and where it stands — identity leads,
+            // status trails, so cards read like a feed of requests
+            // rather than an anonymous list of tickets ──
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(_statusIcon(effectiveStatus), size: 15, color: _statusColor(effectiveStatus)),
-                const SizedBox(width: 6),
-                Text(
-                  _statusLabel(effectiveStatus),
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: _statusColor(effectiveStatus),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: const Color(0xFF004D40),
+                  child: Text(
+                    posterInitial,
+                    style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w700),
                   ),
                 ),
-                const Spacer(),
-                Text(
-                  formattedDate,
-                  style: GoogleFonts.plusJakartaSans(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              posterName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF0F172A)),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(50),
+                            ),
+                            child: const Text(
+                              'You',
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFF64748B), letterSpacing: 0.3),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        formattedDate,
+                        style: GoogleFonts.plusJakartaSans(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _statusBg(effectiveStatus),
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_statusIcon(effectiveStatus), size: 13, color: _statusColor(effectiveStatus)),
+                      const SizedBox(width: 5),
+                      Text(
+                        _statusLabel(effectiveStatus),
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: _statusColor(effectiveStatus),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

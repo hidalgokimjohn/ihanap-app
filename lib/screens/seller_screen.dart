@@ -10,6 +10,7 @@ import '../utils/transaction_number.dart';
 import '../widgets/offer_bottom_sheet.dart';
 import '../widgets/order_summary_sheet.dart';
 import '../widgets/notification_bell.dart';
+import '../widgets/community_check_shortcut.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/pinger_header.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -46,8 +47,8 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
       case 'food':       return ['Food & Catering'];
       case 'repair':     return ['Repair & Services'];
       case 'general':    return ['General Store'];
-      case 'community':  return ['Community Check', 'Community Helpers'];
-      default:           return ['Parts & Hardware', 'Repair & Services', 'Food & Catering', 'Express Rider', 'Rooms & Boarding', 'General Store', 'Community Check', 'Community Helpers'];
+      case 'community':  return ['Community Helpers'];
+      default:           return ['Parts & Hardware', 'Repair & Services', 'Food & Catering', 'Express Rider', 'Rooms & Boarding', 'General Store', 'Community Helpers'];
     }
   }
 
@@ -299,6 +300,7 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
+          const CommunityCheckShortcut(),
           IconButton(
             onPressed: _addNewShop,
             icon: const Icon(Icons.add_business_outlined, color: Color(0xFF004D40)),

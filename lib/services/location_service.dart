@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Data class holding verified user location details
 class LocationData {
@@ -13,12 +14,19 @@ class LocationData {
   final String barangay;
   final DateTime updatedAt;
 
+  /// True when the OS itself flagged this reading as coming from a mock
+  /// provider (Android's Location.isFromMockProvider) or a simulated source
+  /// (iOS 15+'s CLLocationSourceInformation.isSimulatedBySoftware). Web has
+  /// no equivalent signal and always reports false.
+  final bool isMocked;
+
   LocationData({
     required this.latitude,
     required this.longitude,
     required this.city,
     required this.barangay,
     required this.updatedAt,
+    this.isMocked = false,
   });
 }
 
@@ -73,9 +81,11 @@ class LocationService {
         city: locData['city'] ?? 'Current City',
         barangay: locData['barangay'] ?? 'Nearby Area',
         updatedAt: DateTime.now(),
+        isMocked: pos.isMocked,
       );
       currentLocationNotifier.value = data;
       _saveToPrefs(data);
+      _syncLocationToServer(data);
       return data;
     }
     return currentLocationNotifier.value;
@@ -104,9 +114,11 @@ class LocationService {
           city: locData['city'] ?? 'Current City',
           barangay: locData['barangay'] ?? 'Nearby Area',
           updatedAt: DateTime.now(),
+          isMocked: position.isMocked,
         );
         currentLocationNotifier.value = data;
         _saveToPrefs(data);
+        _syncLocationToServer(data);
       });
     } catch (e) {
       debugPrint('Error starting position stream: $e');
@@ -122,6 +134,26 @@ class LocationService {
       await prefs.setString('last_loc_barangay', data.barangay);
     } catch (e) {
       debugPrint('Error saving location to prefs: $e');
+    }
+  }
+
+  /// Keeps this device's last-known position in sync on the server, so
+  /// proximity features (like notifying users within 100m of a Community
+  /// Check) can find nearby people without every client reading everyone
+  /// else's raw coordinates — see the `nearby_user_ids` RPC.
+  static Future<void> _syncLocationToServer(LocationData data) async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      await Supabase.instance.client.from('user_locations').upsert({
+        'user_id': userId,
+        'latitude': data.latitude,
+        'longitude': data.longitude,
+        'is_mocked': data.isMocked,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('Error syncing location to server: $e');
     }
   }
 
