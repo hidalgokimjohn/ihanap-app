@@ -1,6 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/location_service.dart';
 
 class ResponderRegistrationScreen extends StatefulWidget {
   /// If provided, we are EDITING an existing shop (not creating a new one).
@@ -54,7 +55,7 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
     }
     if (_selectedType == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a responder category.')),
+        const SnackBar(content: Text('Please select a shop type.')),
       );
       return;
     }
@@ -65,12 +66,17 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw Exception('User not logged in');
 
+      // Attach GPS coordinates from LocationService if available
+      final loc = LocationService.currentLocationNotifier.value;
+
       final payload = <String, dynamic>{
         'shop_name':      shopName,
         'responder_type': _selectedType,
         'description':    desc.isNotEmpty ? desc : null,
         'profile_id':     user.id,
-        'city_name':      'Butuan City',
+        'city_name':      loc?.city ?? 'Butuan City',
+        if (loc != null) 'latitude':  loc.latitude,
+        if (loc != null) 'longitude': loc.longitude,
       };
 
       // Silently fetch owner name from profile

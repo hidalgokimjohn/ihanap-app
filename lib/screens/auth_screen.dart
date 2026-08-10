@@ -109,7 +109,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
         return;
       }
       if (_selectedResponderType == null) {
-        _showSnackBar('Please select a Responder Category.');
+        _showSnackBar('Please select a Shop Category.');
         return;
       }
     }
@@ -358,7 +358,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             const SizedBox(height: 14),
 
             const Text(
-              'Responder Category *',
+              'Shop Category *',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF334155)),
             ),
             const SizedBox(height: 8),

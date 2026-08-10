@@ -96,7 +96,7 @@ class _CheckCardState extends State<_CheckCard> {
     final amount = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reward Responder'),
+        title: const Text('Reward this Helper'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -172,7 +172,7 @@ class _CheckCardState extends State<_CheckCard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Payment completed! Tipped ₱$amount to responder.'),
+            content: Text('Payment completed! Tipped ₱$amount to the helper.'),
             backgroundColor: const Color(0xFF004D40),
           ),
         );

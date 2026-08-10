@@ -163,11 +163,33 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
 
         if (shops.isEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _addNewShop());
+        } else {
+          // Silently keep the active shop's GPS fresh so the requester
+          // nearby indicator stays accurate.
+          _refreshActiveShopLocation(shops[activeIdx]);
         }
       }
     } catch (e) {
       debugPrint('[PingShops] LOAD ERROR: $e');
       if (mounted) setState(() => _profileLoaded = true);
+    }
+  }
+
+  /// Silently patches the shop's lat/lng in Supabase with the current device GPS.
+  Future<void> _refreshActiveShopLocation(Map<String, dynamic> shop) async {
+    final loc = LocationService.currentLocationNotifier.value;
+    if (loc == null) return;
+    final shopId = shop['id'];
+    if (shopId == null) return;
+    try {
+      await Supabase.instance.client.from('responders').update({
+        'latitude':  loc.latitude,
+        'longitude': loc.longitude,
+        'city_name': loc.city,
+      }).eq('id', shopId);
+      debugPrint('[PingShops] GPS refreshed for shop $shopId');
+    } catch (e) {
+      debugPrint('[PingShops] GPS refresh error: $e');
     }
   }
 
@@ -548,6 +570,7 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
   static const _visibleStatuses = {'open', 'active', 'matched'};
 
   List<Map<String, dynamic>> _requests = [];
+  Set<String> _offeredRequestIds = {};
   StreamSubscription<List<Map<String, dynamic>>>? _liveSub;
   bool _loading = true;
   String? _error;
@@ -567,24 +590,41 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
   Future<void> _load() async {
     if (mounted) setState(() => _error = null);
     try {
-      final data = await Supabase.instance.client
-          .from('requests')
-          .select()
-          .order('created_at', ascending: false)
-          .timeout(const Duration(seconds: 15));
+      final userId = AuthService.currentUserId;
+
+      // Fetch requests and my existing offers in parallel
+      final results = await Future.wait([
+        Supabase.instance.client
+            .from('requests')
+            .select()
+            .order('created_at', ascending: false)
+            .timeout(const Duration(seconds: 15)),
+        if (userId != null)
+          Supabase.instance.client
+              .from('offers')
+              .select('request_id')
+              .eq('user_id', userId)
+              .timeout(const Duration(seconds: 10))
+        else
+          Future.value(<dynamic>[]),
+      ]);
+
+      final data = results[0] as List<dynamic>;
+      final myOffers = results[1] as List<dynamic>;
+      final offeredIds = myOffers
+          .map((o) => (o as Map)['request_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
 
       debugPrint('[PingFeed] fetched ${data.length} rows from requests');
-      if (data.isNotEmpty) {
-        debugPrint('[PingFeed] statuses=${data.map((r) => r['status']).toSet()}');
-        debugPrint('[PingFeed] categories=${data.map((r) => r['category']).toSet()}');
-      }
+      debugPrint('[PingFeed] already offered on ${offeredIds.length} pings');
 
       if (!mounted) return;
       setState(() {
         _requests = _visibleOnly(data);
+        _offeredRequestIds = offeredIds;
         _loading = false;
       });
-      debugPrint('[PingFeed] visible after status filter: ${_requests.length}');
       _listenForLiveUpdates();
     } catch (e) {
       debugPrint('[PingFeed] FETCH ERROR: $e');
@@ -811,12 +851,17 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
               padding: const EdgeInsets.all(16),
               itemCount: requests.length,
               itemBuilder: (context, index) {
+                final req = requests[index];
                 return _RequestCard(
-                  request: requests[index],
+                  request: req,
                   shopName: widget.shopName,
                   currentPosition: widget.currentPosition,
                   dimmed: !autoFellBack && widget.showAll && matchingCats.isNotEmpty &&
-                          !matchingCats.contains(requests[index]['category'] ?? ''),
+                          !matchingCats.contains(req['category'] ?? ''),
+                  alreadyOffered: _offeredRequestIds.contains(req['id']?.toString()),
+                  onOfferSent: (requestId) {
+                    setState(() => _offeredRequestIds.add(requestId));
+                  },
                 );
               },
             ),
@@ -832,11 +877,16 @@ class _RequestCard extends StatelessWidget {
   final String shopName;
   final Position? currentPosition;
   final bool dimmed;
+  final bool alreadyOffered;
+  final void Function(String requestId)? onOfferSent;
+
   const _RequestCard({
     required this.request,
     required this.shopName,
     this.currentPosition,
     this.dimmed = false,
+    this.alreadyOffered = false,
+    this.onOfferSent,
   });
 
   String _fulfillmentLabel(String type) {
@@ -871,7 +921,7 @@ class _RequestCard extends StatelessWidget {
     final partSpec        = tags['part_spec'] ?? tags['spec_2'] ?? '';
     final airconPreferred = tags['aircon_preferred'] == true;
 
-    String distanceLabel = '?? 1.2 km';
+    String distanceLabel = '📍 Nearby';
     if (currentPosition != null && tags['lat'] != null && tags['lng'] != null) {
       try {
         final reqLat = (tags['lat'] as num).toDouble();
@@ -892,20 +942,26 @@ class _RequestCard extends StatelessWidget {
     if (category.contains('Rooms'))     emoji = '🏠';
     if (category.contains('Community')) emoji = '📍';
 
-    final cardColor   = isMatched ? const Color(0xFFECFDF5) : Colors.white;
-    final borderColor = isMatched ? const Color(0xFFD1FAE5) : const Color(0xFFE2E8F0);
+    final cardColor   = isMatched      ? const Color(0xFFECFDF5)
+                      : alreadyOffered ? const Color(0xFFF0FDF4)
+                      : Colors.white;
+    final borderColor = isMatched      ? const Color(0xFFD1FAE5)
+                      : alreadyOffered ? const Color(0xFF86EFAC)
+                      : const Color(0xFFE2E8F0);
+    final borderWidth = (isMatched || alreadyOffered) ? 1.5 : 1.0;
 
     return Opacity(
-      opacity: dimmed ? 0.6 : 1.0,
+      opacity: dimmed ? 0.55 : 1.0,
       child: Card(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 14),
+        elevation: 0,
         color: cardColor,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: borderColor),
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(color: borderColor, width: borderWidth),
         ),
         child: InkWell(
-          onTap: () {
+          onTap: () async {
             if (isMatched) {
               showModalBottomSheet(
                 context: context,
@@ -913,7 +969,7 @@ class _RequestCard extends StatelessWidget {
                 builder: (_) => OrderSummarySheet(request: request),
               );
             } else {
-              showModalBottomSheet(
+              final sent = await showModalBottomSheet<bool>(
                 context: context,
                 isScrollControlled: true,
                 builder: (_) => OfferBottomSheet(
@@ -922,58 +978,86 @@ class _RequestCard extends StatelessWidget {
                   shopName: shopName,
                 ),
               );
+              if (sent == true && request['id'] != null) {
+                onOfferSent?.call(request['id'].toString());
+              }
             }
           },
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
             child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header Row: Category + Fulfillment Breadcrumb (Left) & Distance Badge (Right)
+                // Header Row: Category chip (Left) + Distance chip (Right)
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isMatched ? Colors.white : const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: alreadyOffered
+                              ? const Color(0xFFDCFCE7)
+                              : isMatched
+                                  ? const Color(0xFFDCFCE7)
+                                  : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        child: Text(
+                          '$emoji  $category  ·  ${_fulfillmentLabel(fulfillment)}',
+                          style: GoogleFonts.outfit(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: (alreadyOffered || isMatched)
+                                ? const Color(0xFF15803D)
+                                : const Color(0xFF475569),
                           ),
-                          child: Text(
-                            '$emoji $category • ${_fulfillmentLabel(fulfillment)}',
-                            style: GoogleFonts.outfit(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF334155),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _Badge(label: distanceLabel, bg: const Color(0xFFE2F0F0), fg: const Color(0xFF004D40)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(50),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.near_me_rounded, size: 11, color: Color(0xFF004D40)),
+                          const SizedBox(width: 4),
+                          Text(
+                            distanceLabel.replaceAll('📍 ', ''),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF004D40),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
 
                 if (subCategory.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFFBEB),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFFFDE68A)),
+                      borderRadius: BorderRadius.circular(50),
                     ),
                     child: Text(
-                      '🏷️ $subCategory',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
+                      subCategory,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFB45309),
+                      ),
                     ),
                   ),
                 ],
@@ -998,114 +1082,77 @@ class _RequestCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(10),
-                      border: const Border(
-                        left: BorderSide(color: Color(0xFF004D40), width: 3),
-                      ),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Wrap(
                       spacing: 12,
-                      runSpacing: 4,
+                      runSpacing: 6,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         if (vehicleModel.isNotEmpty)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.directions_car_outlined, size: 13, color: Color(0xFF2563EB)),
-                              const SizedBox(width: 4),
-                              Text(vehicleModel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF))),
-                            ],
-                          ),
+                          _SpecChip(icon: Icons.directions_car_rounded, label: vehicleModel, iconColor: const Color(0xFF2563EB), textColor: const Color(0xFF1E40AF)),
                         if (partSpec.isNotEmpty)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.build_circle_outlined, size: 13, color: Color(0xFFEA580C)),
-                              const SizedBox(width: 4),
-                              Text(partSpec, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFC2410C))),
-                            ],
-                          ),
+                          _SpecChip(icon: Icons.build_rounded, label: partSpec, iconColor: const Color(0xFFEA580C), textColor: const Color(0xFFC2410C)),
                         if (airconPreferred)
-                          const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.ac_unit_rounded, size: 13, color: Color(0xFF0EA5E9)),
-                              SizedBox(width: 4),
-                              Text('Aircon Preferred', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0284C7))),
-                            ],
-                          ),
+                          const _SpecChip(icon: Icons.ac_unit_rounded, label: 'Aircon Preferred', iconColor: Color(0xFF0EA5E9), textColor: Color(0xFF0284C7)),
                       ],
                     ),
                   ),
                 ],
 
-                const SizedBox(height: 14),
-                const Divider(color: Color(0xFFE2E8F0), height: 1),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
+                const Divider(color: Color(0xFFEFF2F6), height: 1),
+                const SizedBox(height: 16),
 
-                // Footer Row: Budget Highlight + Send Offer Action Button
+                // Footer: Budget + Action Button
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
-                          style: GoogleFonts.outfit(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF64748B),
-                            letterSpacing: 0.5,
+                    // Budget block
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
+                            style: GoogleFonts.outfit(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF94A3B8),
+                              letterSpacing: 0.8,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _formatAccountingCurrency(maxBudget),
-                          style: GoogleFonts.outfit(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            color: const Color(0xFF004D40),
-                            letterSpacing: -0.5,
+                          const SizedBox(height: 2),
+                          Text(
+                            _formatAccountingCurrency(maxBudget),
+                            style: GoogleFonts.outfit(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                              color: const Color(0xFF004D40),
+                              letterSpacing: -0.5,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+
+                    const SizedBox(width: 12),
+
+                    // ── Action Button ──────────────────────────
                     if (isMatched)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF10B981),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Row(
-                          children: [
-                            Text('🎉 ', style: TextStyle(fontSize: 14)),
-                            Text('Offer Accepted', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                          ],
-                        ),
+                      _StatusButton(
+                        label: 'Accepted',
+                        icon: Icons.verified_rounded,
+                        bg: const Color(0xFF10B981),
+                        fg: Colors.white,
                       )
-                    else
-                      Container(
-                        height: 44,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF004D40), Color(0xFF00695C)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: const [
-                            BoxShadow(color: Color(0x20004D40), blurRadius: 10, offset: Offset(0, 4)),
-                          ],
-                        ),
-                        child: ElevatedButton(
-                          onPressed: () => showModalBottomSheet(
+                    else if (alreadyOffered)
+                      GestureDetector(
+                        onTap: () async {
+                          final sent = await showModalBottomSheet<bool>(
                             context: context,
                             isScrollControlled: true,
                             builder: (_) => OfferBottomSheet(
@@ -1113,26 +1160,41 @@ class _RequestCard extends StatelessWidget {
                               request: request,
                               shopName: shopName,
                             ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(0, 44),
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.bolt_rounded, size: 18, color: Color(0xFFFF8C42)),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Send Offer',
-                                style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w800),
-                              ),
-                            ],
-                          ),
+                          );
+                          if (sent == true && request['id'] != null) {
+                            onOfferSent?.call(request['id'].toString());
+                          }
+                        },
+                        child: _StatusButton(
+                          label: 'Offer Sent',
+                          icon: Icons.check_rounded,
+                          bg: const Color(0xFFDCFCE7),
+                          fg: const Color(0xFF15803D),
+                          trailingIcon: Icons.arrow_forward_ios_rounded,
+                          trailingIconSize: 10,
+                        ),
+                      )
+                    else
+                      GestureDetector(
+                        onTap: () async {
+                          final sent = await showModalBottomSheet<bool>(
+                            context: context,
+                            isScrollControlled: true,
+                            builder: (_) => OfferBottomSheet(
+                              requestId: request['id'],
+                              request: request,
+                              shopName: shopName,
+                            ),
+                          );
+                          if (sent == true && request['id'] != null) {
+                            onOfferSent?.call(request['id'].toString());
+                          }
+                        },
+                        child: _StatusButton(
+                          label: 'Send Offer',
+                          icon: Icons.send_rounded,
+                          bg: const Color(0xFF004D40),
+                          fg: Colors.white,
                         ),
                       ),
                   ],
@@ -1141,6 +1203,90 @@ class _RequestCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _StatusButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color bg;
+  final Color fg;
+  final IconData? trailingIcon;
+  final double trailingIconSize;
+  const _StatusButton({
+    required this.label,
+    required this.icon,
+    required this.bg,
+    required this.fg,
+    this.trailingIcon,
+    this.trailingIconSize = 12,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(50),
+        boxShadow: bg == const Color(0xFF004D40)
+            ? [BoxShadow(color: const Color(0xFF004D40).withValues(alpha: 0.25), blurRadius: 14, offset: const Offset(0, 5))]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: GoogleFonts.outfit(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: fg,
+            ),
+          ),
+          if (trailingIcon != null) ...[
+            const SizedBox(width: 6),
+            Icon(trailingIcon, size: trailingIconSize, color: fg.withValues(alpha: 0.6)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SpecChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color iconColor;
+  final Color textColor;
+  const _SpecChip({
+    required this.icon,
+    required this.label,
+    required this.iconColor,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(50),
+        border: Border.all(color: iconColor.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: iconColor),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor)),
+        ],
       ),
     );
   }
@@ -1159,10 +1305,10 @@ class _Badge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(50),
         border: border != null ? Border.all(color: border!) : null,
       ),
-      child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: fg)),
+      child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg)),
     );
   }
 }

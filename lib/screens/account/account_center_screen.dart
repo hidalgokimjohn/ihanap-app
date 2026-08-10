@@ -400,7 +400,9 @@ class _AccountCenterScreenState extends State<AccountCenterScreen> {
             .eq('profile_id', userId)
             .order('created_at', ascending: true);
 
-        final shopList = List<Map<String, dynamic>>.from(shopsData);
+        final shopList = (shopsData as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
 
         if (shopList.isNotEmpty) {
           final activeShop = shopList.first;

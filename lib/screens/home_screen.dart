@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
+import '../services/nearby_shops_service.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/nearby_shops_banner.dart';
 import '../widgets/notification_bell.dart';
 import 'account/account_center_screen.dart';
 import 'community_check_screen.dart';
@@ -22,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _tabIndex = 0;
   Map<String, dynamic>? _userProfile;
   String _currentCityName = LocationService.currentLocationNotifier.value?.city ?? 'Butuan City';
+  String _currentBarangay = LocationService.currentLocationNotifier.value?.barangay ?? '';
 
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
@@ -55,7 +58,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (loc != null && mounted) {
       setState(() {
         _currentCityName = loc.city;
+        _currentBarangay = loc.barangay;
       });
+      NearbyShopsService.invalidateCache();
     }
   }
 
@@ -79,11 +84,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (mounted) {
           setState(() {
             _currentCityName = locData['city'] ?? 'Current City';
+            _currentBarangay = locData['barangay'] ?? '';
           });
+          NearbyShopsService.invalidateCache();
           if (forceRefresh) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('📍 Precise location updated: ${locData['barangay']}, ${locData['city']}'),
+                content: Text('📍 Location updated: ${locData['barangay']}, ${locData['city']}'),
                 backgroundColor: const Color(0xFF004D40),
                 behavior: SnackBarBehavior.floating,
               ),
@@ -261,8 +268,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              const Icon(Icons.location_on_rounded, size: 11, color: Color(0xFF10B981)),
+                              const SizedBox(width: 4),
                               Text(
-                                _currentCityName,
+                                _currentBarangay.isNotEmpty
+                                    ? '$_currentBarangay, $_currentCityName'
+                                    : _currentCityName,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 11,
@@ -285,6 +296,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
               ),
+
+              // ── Nearby Shops Banner ──────────────────────────────────────────
+              const NearbyShopsBanner(),
 
               // My Pings List
               Expanded(

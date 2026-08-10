@@ -83,9 +83,11 @@ class LocationService {
 
   static void _startPositionStream() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled()
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
       if (!serviceEnabled) return;
-      LocationPermission permission = await Geolocator.checkPermission();
+      LocationPermission permission = await Geolocator.checkPermission()
+          .timeout(const Duration(seconds: 3), onTimeout: () => LocationPermission.denied);
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
 
       _positionStreamSub?.cancel();
@@ -133,15 +135,18 @@ class LocationService {
     }
 
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled()
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
       if (!serviceEnabled) {
         debugPrint('Location services are disabled.');
         return _cachedPosition;
       }
 
-      LocationPermission permission = await Geolocator.checkPermission();
+      LocationPermission permission = await Geolocator.checkPermission()
+          .timeout(const Duration(seconds: 3), onTimeout: () => LocationPermission.denied);
       if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+        permission = await Geolocator.requestPermission()
+            .timeout(const Duration(seconds: 10), onTimeout: () => LocationPermission.denied);
         if (permission == LocationPermission.denied) {
           debugPrint('Location permissions are denied');
           return _cachedPosition;
@@ -266,9 +271,25 @@ class LocationService {
 
     // Dynamic coordinates fallback if network APIs fail
     return {
-      'city': 'GPS (${lat.toStringAsFixed(2)}, ${lng.toStringAsFixed(2)})',
+      'city': 'Your Area',
       'barangay': 'Local Area',
     };
+  }
+
+  /// Calculate distance in km between two lat/lng points (Haversine formula)
+  static double calculateDistanceKm(
+    double startLat,
+    double startLng,
+    double endLat,
+    double endLng,
+  ) {
+    final distanceInMeters = Geolocator.distanceBetween(
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+    );
+    return distanceInMeters / 1000.0;
   }
 
   /// Calculate distance in km between two lat/lng points

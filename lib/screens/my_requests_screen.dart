@@ -328,18 +328,26 @@ class RequestWithOffersCard extends StatelessWidget {
 
   String _statusLabel(String s) {
     switch (s) {
-      case 'matched':   return '✅ Matched';
-      case 'cancelled': return '⛔ Cancelled';
-      default:          return '🟢 Open';
+      case 'matched':   return 'Matched';
+      case 'cancelled': return 'Cancelled';
+      default:          return 'Open';
+    }
+  }
+
+  IconData _statusIcon(String s) {
+    switch (s) {
+      case 'matched':   return Icons.verified_rounded;
+      case 'cancelled': return Icons.cancel_rounded;
+      default:          return Icons.radio_button_checked_rounded;
     }
   }
 
   String _fulfillmentLabel(String? type) {
     switch (type) {
-      case 'delivery': return '🛵 Delivery';
-      case 'visit':    return '🛠️ On-Site Visit';
-      case 'status':   return '📍 Status Check';
-      default:         return '🏬 Store Pickup';
+      case 'delivery': return 'Delivery';
+      case 'visit':    return 'On-Site Visit';
+      case 'status':   return 'Status Check';
+      default:         return 'Store Pickup';
     }
   }
 
@@ -374,76 +382,55 @@ class RequestWithOffersCard extends StatelessWidget {
     final aircon        = tags['aircon_preferred'] == true;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        color: isMatched ? const Color(0xFFECFDF5) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: isMatched ? const Color(0xFFD1FAE5) : const Color(0xFFE2E8F0),
+          color: isMatched ? const Color(0xFF86EFAC) : const Color(0xFFE2E8F0),
           width: isMatched ? 1.5 : 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Row: Category + Fulfillment Pill (Left) & Status Badge (Right)
+            // ── Header Row ──────────────────────────────────────────
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2F0F0),
-                        borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isMatched ? const Color(0xFFDCFCE7) : const Color(0xFFE2F0F0),
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                    child: Text(
+                      '$category  ·  ${_fulfillmentLabel(fulfillmentType)}',
+                      style: GoogleFonts.outfit(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: isMatched ? const Color(0xFF15803D) : const Color(0xFF004D40),
                       ),
-                      child: Text(
-                        '$category • ${_fulfillmentLabel(fulfillmentType)}',
-                        style: GoogleFonts.outfit(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF004D40),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
+                // Status pill
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
                     color: _statusBg(status),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _statusColor(status).withValues(alpha: 0.3),
-                      width: 1,
-                    ),
+                    borderRadius: BorderRadius.circular(50),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: _statusColor(status),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
+                      Icon(_statusIcon(status), size: 11, color: _statusColor(status)),
+                      const SizedBox(width: 4),
                       Text(
                         _statusLabel(status),
                         style: TextStyle(
@@ -462,22 +449,21 @@ class RequestWithOffersCard extends StatelessWidget {
             if (subCategory != null && subCategory.toString().isNotEmpty) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFFBEB),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFFDE68A)),
+                  borderRadius: BorderRadius.circular(50),
                 ),
                 child: Text(
-                  '🏷️ ${subCategory.toString()}',
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
+                  subCategory.toString(),
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
                 ),
               ),
             ],
 
             const SizedBox(height: 12),
 
-            // Item Title / Main Request Description
+            // ── Description ─────────────────────────────────────────
             Text(
               description,
               maxLines: 2,
@@ -490,68 +476,51 @@ class RequestWithOffersCard extends StatelessWidget {
               ),
             ),
 
-            // Item Specifications Box (Vehicle, Spec, Aircon)
+            // ── Spec Chips ──────────────────────────────────────────
             if (vehicleModel != null || partSpec != null || aircon) ...[
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(10),
-                  border: const Border(
-                    left: BorderSide(color: Color(0xFF004D40), width: 3),
-                  ),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: Wrap(
-                  spacing: 12,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 6,
                   children: [
                     if (vehicleModel != null && vehicleModel.toString().isNotEmpty)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.directions_car_outlined, size: 13, color: Color(0xFF2563EB)),
-                          const SizedBox(width: 4),
-                          Text(
-                            vehicleModel.toString(),
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF)),
-                          ),
-                        ],
+                      _SpecChip(
+                        icon: Icons.directions_car_rounded,
+                        label: vehicleModel.toString(),
+                        iconColor: const Color(0xFF2563EB),
+                        textColor: const Color(0xFF1E40AF),
                       ),
                     if (partSpec != null && partSpec.toString().isNotEmpty)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.build_circle_outlined, size: 13, color: Color(0xFF7C3AED)),
-                          const SizedBox(width: 4),
-                          Text(
-                            partSpec.toString(),
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF6D28D9)),
-                          ),
-                        ],
+                      _SpecChip(
+                        icon: Icons.build_rounded,
+                        label: partSpec.toString(),
+                        iconColor: const Color(0xFF7C3AED),
+                        textColor: const Color(0xFF6D28D9),
                       ),
                     if (aircon)
-                      const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.ac_unit_rounded, size: 13, color: Color(0xFF059669)),
-                          SizedBox(width: 4),
-                          Text(
-                            'Aircon Preferred',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF047857)),
-                          ),
-                        ],
+                      const _SpecChip(
+                        icon: Icons.ac_unit_rounded,
+                        label: 'Aircon Preferred',
+                        iconColor: Color(0xFF059669),
+                        textColor: Color(0xFF047857),
                       ),
                   ],
                 ),
               ),
             ],
 
+            const SizedBox(height: 16),
+            const Divider(color: Color(0xFFEFF2F6), height: 1),
             const SizedBox(height: 14),
 
-            // Footer Highlights: Spotter Tip / Budget (Left) & Date Timestamp (Right)
+            // ── Budget + Date ────────────────────────────────────────
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -563,16 +532,16 @@ class RequestWithOffersCard extends StatelessWidget {
                       category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
                       style: GoogleFonts.outfit(
                         fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: const Color(0xFF64748B),
-                        letterSpacing: 0.5,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF94A3B8),
+                        letterSpacing: 0.8,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       _formatAccountingCurrency(maxBudget),
                       style: GoogleFonts.outfit(
-                        fontSize: 20,
+                        fontSize: 22,
                         fontWeight: FontWeight.w900,
                         color: const Color(0xFF004D40),
                         letterSpacing: -0.5,
@@ -582,22 +551,22 @@ class RequestWithOffersCard extends StatelessWidget {
                 ),
                 Row(
                   children: [
-                    const Icon(Icons.schedule_rounded, size: 12, color: Color(0xFF94A3B8)),
+                    const Icon(Icons.schedule_rounded, size: 12, color: Color(0xFFCBD5E1)),
                     const SizedBox(width: 4),
                     Text(
                       formattedDate,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
                     ),
                   ],
                 ),
               ],
             ),
 
-            const SizedBox(height: 12),
-            const Divider(color: Color(0xFFE2E8F0), height: 1),
+            const SizedBox(height: 14),
+            const Divider(color: Color(0xFFEFF2F6), height: 1),
             const SizedBox(height: 12),
 
-            // Live Merchant Offers Section
+            // ── Offers ───────────────────────────────────────────────
             _OffersList(
               request: request,
               isOpen: isOpen,
@@ -660,17 +629,18 @@ class _OffersListState extends State<_OffersList> {
 
         if (offers.isEmpty) {
           return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(50),
             ),
             child: const Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.sensors_rounded, size: 14, color: Color(0xFF10B981)),
+                Icon(Icons.wifi_tethering_rounded, size: 13, color: Color(0xFF10B981)),
                 SizedBox(width: 8),
                 Text(
-                  'Radar active • Waiting for local merchant offers...',
+                  'Listening for merchant offers...',
                   style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
                 ),
               ],
@@ -716,14 +686,14 @@ class _OffersListState extends State<_OffersList> {
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: isAccepted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: isNew
                         ? const Color(0xFFDC2626)
-                        : (isAccepted ? const Color(0xFF86EFAC) : const Color(0xFFE2E8F0)),
+                        : (isAccepted ? const Color(0xFF86EFAC) : const Color(0xFFEFF2F6)),
                     width: isNew ? 1.5 : (isAccepted ? 1.5 : 1),
                   ),
                 ),
@@ -733,14 +703,14 @@ class _OffersListState extends State<_OffersList> {
                     Row(
                       children: [
                         CircleAvatar(
-                          radius: 12,
+                          radius: 14,
                           backgroundColor: isAccepted ? const Color(0xFF10B981) : const Color(0xFF004D40),
                           child: Text(
                             shopName.isNotEmpty ? shopName[0].toUpperCase() : 'M',
-                            style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -750,7 +720,7 @@ class _OffersListState extends State<_OffersList> {
                                   Flexible(
                                     child: Text(
                                       shopName,
-                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -758,14 +728,14 @@ class _OffersListState extends State<_OffersList> {
                                   if (isNew) ...[
                                     const SizedBox(width: 6),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFDC2626),
-                                        borderRadius: BorderRadius.circular(20),
+                                        borderRadius: BorderRadius.circular(50),
                                       ),
                                       child: const Text(
                                         'NEW',
-                                        style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.3),
+                                        style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5),
                                       ),
                                     ),
                                   ],
@@ -773,58 +743,80 @@ class _OffersListState extends State<_OffersList> {
                               ),
                               Text(
                                 _formatAccountingCurrency(price),
-                                style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w900, color: const Color(0xFF004D40)),
+                                style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w900, color: const Color(0xFF004D40)),
                               ),
                             ],
                           ),
                         ),
                         const SizedBox(width: 8),
+                        // Accept / Accepted button
                         if (isAccepted)
-                          ElevatedButton.icon(
-                            onPressed: () => showModalBottomSheet(
+                          GestureDetector(
+                            onTap: () => showModalBottomSheet(
                               context: context,
                               isScrollControlled: true,
                               builder: (_) => OrderSummarySheet(request: widget.request),
                             ),
-                            icon: const Icon(Icons.check_circle_rounded, size: 13, color: Colors.white),
-                            label: const Text('Accepted', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF10B981),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            child: Container(
+                              height: 44,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981),
+                                borderRadius: BorderRadius.circular(50),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.verified_rounded, size: 15, color: Colors.white),
+                                  SizedBox(width: 6),
+                                  Text('Accepted', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                                ],
+                              ),
                             ),
                           )
                         else if (widget.isOpen)
-                          ElevatedButton(
-                            onPressed: () => widget.onAccept(offer),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF004D40),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          GestureDetector(
+                            onTap: () => widget.onAccept(offer),
+                            child: Container(
+                              height: 44,
+                              padding: const EdgeInsets.symmetric(horizontal: 18),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF004D40),
+                                borderRadius: BorderRadius.circular(50),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF004D40).withValues(alpha: 0.25),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.check_rounded, size: 16, color: Colors.white),
+                                  SizedBox(width: 6),
+                                  Text('Accept', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+                                ],
+                              ),
                             ),
-                            child: const Text('Accept', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                           ),
                       ],
                     ),
                     if (note.isNotEmpty) ...[
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFF1F5F9)),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          '"$note"',
+                          '“$note”',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontStyle: FontStyle.italic),
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF475569), fontStyle: FontStyle.italic),
                         ),
                       ),
                     ],
@@ -835,6 +827,40 @@ class _OffersListState extends State<_OffersList> {
           ],
         );
       },
+    );
+  }
+}
+
+
+class _SpecChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color iconColor;
+  final Color textColor;
+  const _SpecChip({
+    required this.icon,
+    required this.label,
+    required this.iconColor,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(50),
+        border: Border.all(color: iconColor.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: iconColor),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor)),
+        ],
+      ),
     );
   }
 }

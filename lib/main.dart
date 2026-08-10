@@ -10,6 +10,8 @@ import 'services/auth_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Enable runtime font fetching
+  GoogleFonts.config.allowRuntimeFetching = true;
   await Supabase.initialize(
     url: 'https://fbljufyckedcywiohklc.supabase.co',
     anonKey: 'sb_publishable_LrwNoJHjlZuWXkIxJ5LsuA_Bj_7fBX7',
