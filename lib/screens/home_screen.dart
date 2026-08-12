@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
+import '../services/nearby_shops_service.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/community_check_shortcut.dart';
+import '../widgets/nearby_shops_banner.dart';
 import '../widgets/notification_bell.dart';
+import '../widgets/premium_button.dart';
 import 'account/account_center_screen.dart';
 import 'community_check_screen.dart';
 import 'create_request_cupertino_screen.dart';
@@ -22,9 +26,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _tabIndex = 0;
   Map<String, dynamic>? _userProfile;
   String _currentCityName = LocationService.currentLocationNotifier.value?.city ?? 'Butuan City';
+  String _currentBarangay = LocationService.currentLocationNotifier.value?.barangay ?? '';
 
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+
+  // Reported by MyRequestsScreen so the banner can collapse its onboarding
+  // copy once the user already has something broadcasting — that pitch
+  // is only useful before someone has sent their first Ping.
+  final ValueNotifier<int> _activePingsCount = ValueNotifier(0);
 
   @override
   void initState() {
@@ -40,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     LocationService.currentLocationNotifier.removeListener(_onLocationChanged);
     _searchController.dispose();
+    _activePingsCount.dispose();
     super.dispose();
   }
 
@@ -55,7 +66,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (loc != null && mounted) {
       setState(() {
         _currentCityName = loc.city;
+        _currentBarangay = loc.barangay;
       });
+      NearbyShopsService.invalidateCache();
     }
   }
 
@@ -79,11 +92,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (mounted) {
           setState(() {
             _currentCityName = locData['city'] ?? 'Current City';
+            _currentBarangay = locData['barangay'] ?? '';
           });
+          NearbyShopsService.invalidateCache();
           if (forceRefresh) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('📍 Precise location updated: ${locData['barangay']}, ${locData['city']}'),
+                content: Text('📍 Location updated: ${locData['barangay']}, ${locData['city']}'),
                 backgroundColor: const Color(0xFF004D40),
                 behavior: SnackBarBehavior.floating,
               ),
@@ -169,6 +184,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
         actions: [
+          const CommunityCheckShortcut(),
           if (_tabIndex == 0)
             IconButton(
               icon: Icon(
@@ -223,63 +239,100 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      ValueListenableBuilder<int>(
+                        valueListenable: _activePingsCount,
+                        builder: (context, activeCount, _) {
+                          // Once a Ping is already broadcasting, the onboarding
+                          // pitch is noise — a returning user needs status, not
+                          // a re-explanation of what the app does.
+                          if (activeCount > 0) {
+                            return Row(
+                              children: [
+                                const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFF10B981)),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '$activeCount Ping${activeCount > 1 ? 's' : ''} live — broadcasting to nearby shops',
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Need parts, rooms, or a rider?',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Broadcast your request to nearby verified shops in seconds.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF94A3B8),
+                                  height: 1.3,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              'Need parts, rooms, or a rider?',
-                              style: GoogleFonts.outfit(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                height: 1.2,
+                          InkWell(
+                            onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
+                            borderRadius: BorderRadius.circular(20),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.location_on_rounded, size: 11, color: Color(0xFF10B981)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _currentBarangay.isNotEmpty
+                                        ? '$_currentBarangay, $_currentCityName'
+                                        : _currentCityName,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _isUpdatingLocation
+                                      ? const SizedBox(
+                                          width: 11,
+                                          height: 11,
+                                          child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
+                                        )
+                                      : const Icon(Icons.refresh_rounded, size: 13, color: Colors.white70),
+                                ],
                               ),
                             ),
                           ),
+                          const Spacer(),
+                          const NearbyShopsBanner(compact: true),
                         ],
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Broadcast your request to nearby verified shops in seconds.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF94A3B8),
-                          height: 1.3,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      InkWell(
-                        onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _currentCityName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              _isUpdatingLocation
-                                  ? const SizedBox(
-                                      width: 11,
-                                      height: 11,
-                                      child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
-                                    )
-                                  : const Icon(Icons.refresh_rounded, size: 13, color: Colors.white70),
-                            ],
-                          ),
-                        ),
                       ),
                     ],
                   ),
@@ -290,6 +343,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               Expanded(
                 child: MyRequestsScreen(
                   searchQuery: _searchController.text,
+                  activePingsNotifier: _activePingsCount,
                 ),
               ),
             ],
@@ -408,38 +462,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const NotificationBell(),
 
             // Center Action: Send Ping FAB
-            GestureDetector(
-              onTap: () {
+            PremiumButton(
+              onPressed: () {
                 Navigator.of(context).push(
                   CupertinoPageRoute(
                     builder: (_) => const CreateRequestCupertinoScreen(),
                   ),
                 );
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF004D40), Color(0xFF00695C)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 22),
+              borderRadius: BorderRadius.circular(30),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF004D40), Color(0xFF00695C)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: const [
+                BoxShadow(color: Color(0x30004D40), blurRadius: 12, offset: Offset(0, 4)),
+              ],
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.bolt_rounded, size: 20, color: Color(0xFFFF8C42)),
+                  SizedBox(width: 6),
+                  Text(
+                    'Send Ping',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white),
                   ),
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0x30004D40), blurRadius: 12, offset: Offset(0, 4)),
-                  ],
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.bolt_rounded, size: 20, color: Color(0xFFFF8C42)),
-                    SizedBox(width: 6),
-                    Text(
-                      'Send Ping',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white),
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
 
@@ -502,7 +553,7 @@ class _CategoryCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            if (dbCategory == 'Community Updates') {
+            if (dbCategory == 'Community Check') {
               Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const CommunityCheckScreen()));
               return;

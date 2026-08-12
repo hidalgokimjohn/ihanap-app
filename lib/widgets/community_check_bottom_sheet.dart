@@ -1,10 +1,21 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
+import '../services/location_service.dart';
 import '../services/privacy_blur_service.dart';
+import 'location_picker_screen.dart';
+
+/// How close a user needs to be to a check's target location to get a
+/// nearby-notify alert. 100m is tighter than real-world GPS accuracy can
+/// reliably support (especially indoors), so this favors actually reaching
+/// people over strict precision.
+const double kNotifyRadiusMeters = 500;
 
 class CommunityCheckBottomSheet extends StatefulWidget {
   const CommunityCheckBottomSheet({super.key});
@@ -28,6 +39,149 @@ class _CommunityCheckBottomSheetState extends State<CommunityCheckBottomSheet> {
   final _bountyController   = TextEditingController();
   XFile? _photo;
   bool _isSubmitting = false;
+
+  // ── Target location — where the check is ASKING ABOUT, which may be
+  // nowhere near the poster's own GPS (e.g. asking about Masao while
+  // physically in Libertad). Only a picked suggestion attaches real
+  // coordinates, since that's what powers the notify-nearby step.
+  Timer? _searchDebounce;
+  List<Map<String, dynamic>> _suggestions = [];
+  bool _isSearchingLocation = false;
+  double? _targetLat;
+  double? _targetLng;
+  bool _isLocatingMe = false;
+
+  void _onLandmarkChanged(String query) {
+    if (_targetLat != null) {
+      setState(() {
+        _targetLat = null;
+        _targetLng = null;
+      });
+    }
+    _searchDebounce?.cancel();
+    if (query.trim().length < 3) {
+      setState(() => _suggestions = []);
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () => _searchLocation(query));
+  }
+
+  Future<void> _searchLocation(String query) async {
+    setState(() => _isSearchingLocation = true);
+    try {
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/search'
+        '?format=jsonv2&limit=5&countrycodes=ph'
+        '&q=${Uri.encodeComponent('$query, Butuan City, Philippines')}',
+      );
+      final res = await http.get(url, headers: {
+        'User-Agent': 'iHanapApp/2.0 (contact@ihanap.ph)',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }).timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200 && mounted) {
+        final data = jsonDecode(res.body) as List;
+        setState(() => _suggestions = data.cast<Map<String, dynamic>>());
+      }
+    } catch (_) {
+      // Silent — free text still works without a picked location.
+    } finally {
+      if (mounted) setState(() => _isSearchingLocation = false);
+    }
+  }
+
+  void _pickSuggestion(Map<String, dynamic> suggestion) {
+    _landmarkController.text = suggestion['display_name'] as String? ?? _landmarkController.text;
+    setState(() {
+      _targetLat = double.tryParse(suggestion['lat']?.toString() ?? '');
+      _targetLng = double.tryParse(suggestion['lon']?.toString() ?? '');
+      _suggestions = [];
+    });
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => _isLocatingMe = true);
+    try {
+      // Goes through refreshLocation (not a raw GPS fetch) so this also
+      // syncs to user_locations — the moment someone actively shares their
+      // position here is the best signal we get for the nearby-notify RPC.
+      final locData = await LocationService.refreshLocation(forceRefresh: true);
+      if (locData == null || !mounted) return;
+      if (locData.isMocked) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Mock location detected. Disable fake GPS apps to pin your location.'),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+        return;
+      }
+      setState(() {
+        _targetLat = locData.latitude;
+        _targetLng = locData.longitude;
+        _suggestions = [];
+        if (_landmarkController.text.trim().isEmpty) {
+          _landmarkController.text = '${locData.barangay}, ${locData.city}';
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _isLocatingMe = false);
+    }
+  }
+
+  Future<void> _openMapPicker() async {
+    final picked = await Navigator.of(context).push<PickedLocation>(
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(initialLat: _targetLat, initialLng: _targetLng),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _targetLat = picked.lat;
+      _targetLng = picked.lng;
+      _landmarkController.text = picked.label;
+      _suggestions = [];
+    });
+  }
+
+  /// Notifies only users the server finds within [radiusMeters] of the
+  /// target point — clients never fetch anyone else's raw coordinates,
+  /// the `nearby_user_ids` RPC returns matching ids only.
+  Future<void> _notifyNearbyUsers({
+    required String checkId,
+    required String posterId,
+    double radiusMeters = kNotifyRadiusMeters,
+  }) async {
+    if (_targetLat == null || _targetLng == null) return;
+    try {
+      final rows = await Supabase.instance.client.rpc('nearby_user_ids', params: {
+        'target_lat': _targetLat,
+        'target_lng': _targetLng,
+        'radius_meters': radiusMeters,
+      });
+
+      final ids = (rows as List)
+          .map((r) => r['user_id'] as String)
+          .where((id) => id != posterId)
+          .toList();
+      if (ids.isEmpty) return;
+
+      final typeLabel = _types.firstWhere((t) => t['key'] == _selectedType)['label'];
+      final landmark = _landmarkController.text.trim();
+
+      await Supabase.instance.client.from('notifications').insert(
+        ids.map((id) => {
+          'user_id': id,
+          'title': '📍 Community Check nearby',
+          'body': '$typeLabel check posted near $landmark — you\'re within ${kNotifyRadiusMeters.round()}m. Can you confirm?',
+          'type': 'community_check_nearby',
+          'reference_id': checkId,
+        }).toList(),
+      );
+    } catch (e) {
+      debugPrint('Failed to notify nearby users: $e');
+    }
+  }
 
   Future<void> _capturePhoto() async {
     final picker = ImagePicker();
@@ -75,14 +229,18 @@ class _CommunityCheckBottomSheetState extends State<CommunityCheckBottomSheet> {
 
       final bounty = double.tryParse(_bountyController.text) ?? 0;
 
-      await Supabase.instance.client.from('community_checks').insert({
+      final inserted = await Supabase.instance.client.from('community_checks').insert({
         'user_id':     userId,
         'check_type':  _selectedType,
         'landmark':    _landmarkController.text.trim(),
         'description': _descController.text.trim(),
         'bounty':      bounty,
         'photo_url':   photoUrl,
-      });
+        if (_targetLat != null) 'target_lat': _targetLat,
+        if (_targetLng != null) 'target_lng': _targetLng,
+      }).select().single();
+
+      await _notifyNearbyUsers(checkId: inserted['id'].toString(), posterId: userId);
 
       if (mounted) {
         Navigator.pop(context);
@@ -105,6 +263,7 @@ class _CommunityCheckBottomSheetState extends State<CommunityCheckBottomSheet> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _landmarkController.dispose();
     _descController.dispose();
     _bountyController.dispose();
@@ -193,11 +352,109 @@ class _CommunityCheckBottomSheetState extends State<CommunityCheckBottomSheet> {
             const SizedBox(height: 16),
 
             // Landmark
-            const Text('LANDMARK / LOCATION',
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: Color(0xFF94A3B8))),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('LANDMARK / LOCATION',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: Color(0xFF94A3B8))),
+                ),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  children: [
+                    GestureDetector(
+                      onTap: _openMapPicker,
+                      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.map_rounded, size: 12, color: Color(0xFF004D40)),
+                        SizedBox(width: 4),
+                        Text('Pin on map',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF004D40))),
+                      ]),
+                    ),
+                    GestureDetector(
+                      onTap: _isLocatingMe ? null : _useCurrentLocation,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        _isLocatingMe
+                            ? const SizedBox(width: 11, height: 11, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF004D40)))
+                            : const Icon(Icons.my_location_rounded, size: 12, color: Color(0xFF004D40)),
+                        const SizedBox(width: 4),
+                        const Text('Use my location',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF004D40))),
+                      ]),
+                    ),
+                  ],
+                ),
+              ],
+            ),
             const SizedBox(height: 6),
             _buildField(_landmarkController, 'e.g. J.P. Rizal St, near Jollibee',
-              prefixIcon: const Icon(Icons.location_on_outlined, size: 18, color: Color(0xFF94A3B8))),
+              prefixIcon: const Icon(Icons.location_on_outlined, size: 18, color: Color(0xFF94A3B8)),
+              suffixIcon: _isSearchingLocation
+                  ? const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                    )
+                  : (_targetLat != null
+                      ? const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF10B981))
+                      : null),
+              onChanged: _onLandmarkChanged,
+            ),
+
+            // Suggestions dropdown
+            if (_suggestions.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: _suggestions.map((s) {
+                    final name = s['display_name'] as String? ?? '';
+                    return InkWell(
+                      onTap: () => _pickSuggestion(s),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Row(children: [
+                          const Icon(Icons.place_outlined, size: 15, color: Color(0xFF94A3B8)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(name,
+                              maxLines: 2, overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                          ),
+                        ]),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 6),
+            Row(children: [
+              Icon(
+                _targetLat != null ? Icons.gps_fixed_rounded : Icons.info_outline_rounded,
+                size: 12,
+                color: _targetLat != null ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _targetLat != null
+                      ? 'Location pinned — neighbors within ${kNotifyRadiusMeters.round()}m will be notified.'
+                      : 'Pin on map or pick a suggestion to notify neighbors within ${kNotifyRadiusMeters.round()}m.',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: _targetLat != null ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                  ),
+                ),
+              ),
+            ]),
             const SizedBox(height: 10),
             _buildField(_descController, 'Additional details (optional)', maxLines: 2),
             const SizedBox(height: 10),
@@ -290,6 +547,8 @@ class _CommunityCheckBottomSheetState extends State<CommunityCheckBottomSheet> {
     TextInputType keyboardType = TextInputType.text,
     Widget? prefixIcon,
     Widget? prefixWidget,
+    Widget? suffixIcon,
+    void Function(String)? onChanged,
   }) {
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -303,11 +562,13 @@ class _CommunityCheckBottomSheetState extends State<CommunityCheckBottomSheet> {
       controller: ctrl,
       maxLines: maxLines,
       keyboardType: keyboardType,
+      onChanged: onChanged,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(fontSize: 13, color: Color(0xFFCBD5E1)),
         prefixIcon: prefixWidget ?? prefixIcon,
         prefixIconConstraints: prefixWidget != null ? const BoxConstraints(minWidth: 36, minHeight: 0) : null,
+        suffixIcon: suffixIcon,
         contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         border: border, enabledBorder: border, focusedBorder: focusedBorder,
       ),

@@ -127,7 +127,11 @@ class _AppDrawerState extends State<AppDrawer> {
   }
 
   Future<void> _handleLogout() async {
-    Navigator.pop(context); // Close drawer
+    // Capture the root navigator BEFORE any async gap or drawer dismissal —
+    // once the drawer closes, this widget's own `context` gets deactivated,
+    // so anything captured here must not depend on `context` afterward.
+    final navigator = Navigator.of(context, rootNavigator: true);
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -152,12 +156,13 @@ class _AppDrawerState extends State<AppDrawer> {
       ),
     );
 
-    if (confirm != true || !mounted) return;
+    if (confirm != true) return;
 
     await AuthService.signOut();
 
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
+    // Replaces the entire navigation stack, which also dismisses the
+    // still-open drawer underneath — no separate pop needed.
+    navigator.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthScreen()),
       (route) => false,
     );
@@ -175,113 +180,43 @@ class _AppDrawerState extends State<AppDrawer> {
       child: SafeArea(
         child: Column(
           children: [
-            // Drawer Header
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF8FAFC),
-                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // ── Compact Brand Header ─────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF004D40),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 28),
-                      ),
-                      const SizedBox(width: 12),
-                      ShaderMask(
-                        shaderCallback: (bounds) => const LinearGradient(
-                          colors: [Color(0xFF004D40), Color(0xFF10B981)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ).createShader(bounds),
-                        child: Text(
-                          'Ping',
-                          style: GoogleFonts.outfit(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.8,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF004D40),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 22),
                   ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: const Color(0xFF004D40),
-                        child: Text(
-                          initial,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
+                  const SizedBox(width: 10),
+                  ShaderMask(
+                    shaderCallback: (bounds) => const LinearGradient(
+                      colors: [Color(0xFF004D40), Color(0xFF10B981)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ).createShader(bounds),
+                    child: Text(
+                      'Ping',
+                      style: GoogleFonts.outfit(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.6,
+                        color: Colors.white,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              fullName,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              email,
-                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE2F0F0),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          '📍 $barangay',
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF004D40)),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFFBEB),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          widget.isMerchantMode ? '🏪 Merchant Mode' : '🛍️ Buyer Mode',
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),
             ),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
 
-            // Navigation Options List
+            // ── Navigation Options List ───────────────────────────────
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
@@ -373,15 +308,109 @@ class _AppDrawerState extends State<AppDrawer> {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => AccountCenterScreen(isMerchantMode: widget.isMerchantMode)));
                     },
                   ),
+                ],
+              ),
+            ),
 
-                  const Divider(height: 24, color: Color(0xFFF1F5F9)),
-
-                  _buildDrawerTile(
-                    icon: Icons.logout,
-                    activeIcon: Icons.logout,
-                    title: 'Log Out',
-                    isDestructive: true,
-                    onTap: _handleLogout,
+            // ── Pinned User Info & Log Out Footer ─────────────────────
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Material(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => AccountCenterScreen(isMerchantMode: widget.isMerchantMode)));
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: const Color(0xFF004D40),
+                              child: Text(
+                                initial,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    fullName,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    email,
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE2F0F0),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '📍 $barangay',
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF004D40)),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          widget.isMerchantMode ? '🏪 Merchant Mode' : '🛍️ Buyer Mode',
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _handleLogout,
+                      icon: const Icon(Icons.logout_rounded, size: 17, color: Color(0xFFEF4444)),
+                      label: const Text('Log Out', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold, fontSize: 13)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFFECACA)),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -398,14 +427,9 @@ class _AppDrawerState extends State<AppDrawer> {
     required String title,
     String? subtitle,
     bool isSelected = false,
-    bool isDestructive = false,
     required VoidCallback onTap,
   }) {
-    final color = isDestructive
-        ? const Color(0xFFEF4444)
-        : isSelected
-            ? const Color(0xFF004D40)
-            : const Color(0xFF334155);
+    final color = isSelected ? const Color(0xFF004D40) : const Color(0xFF334155);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 4),

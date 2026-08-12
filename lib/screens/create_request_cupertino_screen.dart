@@ -40,7 +40,6 @@ class _CreateRequestCupertinoScreenState
     {'name': 'Food & Catering',  'emoji': '🍽️'},
     {'name': 'Repair & Services','emoji': '🛠️'},
     {'name': 'General Store',    'emoji': '🏪'},
-    {'name': 'Community Check',  'emoji': '📍'},
     {'name': 'Community Helpers','emoji': '🚨'},
   ];
 
@@ -48,9 +47,6 @@ class _CreateRequestCupertinoScreenState
   void initState() {
     super.initState();
     _category = widget.initialCategory ?? 'Parts & Hardware';
-    if (_category == 'Community Updates') {
-      _category = 'Community Check';
-    }
     _setFulfillmentDefaults(_category);
   }
 
@@ -65,8 +61,8 @@ class _CreateRequestCupertinoScreenState
 
   void _setFulfillmentDefaults(String cat) {
     switch (cat) {
-      case 'Community Check':
-        _fulfillmentType = 'status';
+      case 'Community Helpers':
+        _fulfillmentType = 'onsite';
         break;
       case 'Express Rider':
       case 'Food & Catering':
@@ -91,7 +87,6 @@ class _CreateRequestCupertinoScreenState
       case 'Repair & Services': return 'What repair or service do you need?';
       case 'General Store':     return 'What items or supplies do you need?';
       case 'Community Helpers': return 'What assistance or helper service do you need?';
-      case 'Community Check':   return 'What place or situation do you want to check?';
       default:                  return 'Describe what you need';
     }
   }
@@ -105,7 +100,6 @@ class _CreateRequestCupertinoScreenState
       case 'Repair & Services': return 'Describe the issue or equipment needing service.';
       case 'General Store':     return 'List the items or supplies you are looking for.';
       case 'Community Helpers': return 'Describe the task or emergency assistance needed.';
-      case 'Community Check':   return 'Describe the place, store, or road condition to check.';
       default:                  return 'Provide as many details as possible for better offers.';
     }
   }
@@ -119,7 +113,6 @@ class _CreateRequestCupertinoScreenState
       case 'Repair & Services': return 'e.g. Split-type AC cleaning in Libertad';
       case 'General Store':     return 'e.g. 5 bags 25kg Sinandomeng rice';
       case 'Community Helpers': return 'e.g. Need 2 helpers to carry furniture';
-      case 'Community Check':   return 'e.g. Is Jollibee Montilla open right now? Road flood status?';
       default:                  return 'e.g. I need a technician for a leaking pipe';
     }
   }
@@ -140,8 +133,6 @@ class _CreateRequestCupertinoScreenState
         return ['🌾 Rice & Grains', '🧼 Cleaning Supplies', '📦 Goods', '✏️ Stationery'];
       case 'Community Helpers':
         return ['💪 Heavy Lifting', '🌱 Yard Cleaning', '🚨 Emergency Aid', '🤝 Volunteer'];
-      case 'Community Check':
-        return ['📍 Store Status', '🌊 Flood & Road Check', '🚦 Traffic Status', '🏬 Opening Hours'];
       default:
         return [];
     }
@@ -431,9 +422,11 @@ class _CreateRequestCupertinoScreenState
     List<Map<String, dynamic>> options;
 
     switch (_category) {
-      case 'Community Check':
+      case 'Community Helpers':
         options = [
-          {'id': 'status', 'label': 'Real-Time Status Check', 'icon': Icons.pin_drop_rounded},
+          {'id': 'onsite', 'label': 'Come to Me',  'icon': Icons.home_rounded},
+          {'id': 'go_to',  'label': 'At a Place',  'icon': Icons.location_on_rounded},
+          {'id': 'remote', 'label': 'Remote Help', 'icon': Icons.phone_in_talk_rounded},
         ];
         break;
       case 'Express Rider':
@@ -664,7 +657,7 @@ class _CreateRequestCupertinoScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'FULFILLMENT METHOD',
+                    _category == 'Community Helpers' ? 'WHERE DO YOU NEED HELP?' : 'FULFILLMENT METHOD',
                     style: GoogleFonts.outfit(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
@@ -686,7 +679,7 @@ class _CreateRequestCupertinoScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _category == 'Community Check' ? 'TIP FOR SPOTTER (₱)' : 'MAXIMUM BUDGET (₱)',
+                    'MAXIMUM BUDGET (₱)',
                     style: GoogleFonts.outfit(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
@@ -696,9 +689,7 @@ class _CreateRequestCupertinoScreenState
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _category == 'Community Check'
-                        ? 'Offer a tip amount for the community spotter who checks this place.'
-                        : 'Set your maximum expected budget for this request.',
+                    'Set your maximum expected budget for this request.',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 11,
                       color: const Color(0xFF64748B),
@@ -716,9 +707,9 @@ class _CreateRequestCupertinoScreenState
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w800, color: const Color(0xFF004D40)),
                       decoration: InputDecoration(
-                        prefixIcon: Icon(
-                          _category == 'Community Check' ? Icons.volunteer_activism_rounded : Icons.payments_outlined,
-                          color: const Color(0xFF004D40),
+                        prefixIcon: const Icon(
+                          Icons.payments_outlined,
+                          color: Color(0xFF004D40),
                           size: 20,
                         ),
                         hintText: '0.00',

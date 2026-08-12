@@ -11,7 +11,7 @@ class NotificationBell extends StatelessWidget {
     final userId = AuthService.currentUserId;
     if (userId == null) {
       return IconButton(
-        icon: const Icon(Icons.notifications_none, color: Color(0xFF004D40)),
+        icon: const Icon(Icons.notifications_none_rounded, color: Color(0xFF004D40)),
         onPressed: () {},
       );
     }
@@ -32,7 +32,7 @@ class NotificationBell extends StatelessWidget {
           children: [
             IconButton(
               icon: Icon(
-                unreadCount > 0 ? Icons.notifications_active : Icons.notifications_none, 
+                unreadCount > 0 ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
                 color: const Color(0xFF004D40)
               ),
               tooltip: 'Notifications',

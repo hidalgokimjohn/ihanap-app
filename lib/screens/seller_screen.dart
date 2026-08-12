@@ -6,10 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
+import '../utils/transaction_number.dart';
 import '../widgets/offer_bottom_sheet.dart';
 import '../widgets/order_summary_sheet.dart';
 import '../widgets/notification_bell.dart';
+import '../widgets/community_check_shortcut.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/pinger_header.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'account/account_center_screen.dart';
 import 'responder_registration_screen.dart';
@@ -29,7 +32,6 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
   List<Map<String, dynamic>> _shops = [];
   int _activeShopIndex = 0;
   bool _profileLoaded = false;
-  bool _showAll = true;
   int _tabIndex = 0; // 0 = Live Requests, 1 = My Offers
 
   Map<String, dynamic>? get _activeShop =>
@@ -45,8 +47,8 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
       case 'food':       return ['Food & Catering'];
       case 'repair':     return ['Repair & Services'];
       case 'general':    return ['General Store'];
-      case 'community':  return ['Community Check', 'Community Helpers'];
-      default:           return ['Parts & Hardware', 'Repair & Services', 'Food & Catering', 'Express Rider', 'Rooms & Boarding', 'General Store', 'Community Check', 'Community Helpers'];
+      case 'community':  return ['Community Helpers'];
+      default:           return ['Parts & Hardware', 'Repair & Services', 'Food & Catering', 'Express Rider', 'Rooms & Boarding', 'General Store', 'Community Helpers'];
     }
   }
 
@@ -163,11 +165,33 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
 
         if (shops.isEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _addNewShop());
+        } else {
+          // Silently keep the active shop's GPS fresh so the requester
+          // nearby indicator stays accurate.
+          _refreshActiveShopLocation(shops[activeIdx]);
         }
       }
     } catch (e) {
       debugPrint('[PingShops] LOAD ERROR: $e');
       if (mounted) setState(() => _profileLoaded = true);
+    }
+  }
+
+  /// Silently patches the shop's lat/lng in Supabase with the current device GPS.
+  Future<void> _refreshActiveShopLocation(Map<String, dynamic> shop) async {
+    final loc = LocationService.currentLocationNotifier.value;
+    if (loc == null) return;
+    final shopId = shop['id'];
+    if (shopId == null) return;
+    try {
+      await Supabase.instance.client.from('responders').update({
+        'latitude':  loc.latitude,
+        'longitude': loc.longitude,
+        'city_name': loc.city,
+      }).eq('id', shopId);
+      debugPrint('[PingShops] GPS refreshed for shop $shopId');
+    } catch (e) {
+      debugPrint('[PingShops] GPS refresh error: $e');
     }
   }
 
@@ -195,7 +219,6 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
     await prefs.setString('responder_type',      shop['responder_type'] ?? '');
     setState(() {
       _activeShopIndex = index;
-      _showAll = false;
     });
   }
 
@@ -277,6 +300,7 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         actions: [
+          const CommunityCheckShortcut(),
           IconButton(
             onPressed: _addNewShop,
             icon: const Icon(Icons.add_business_outlined, color: Color(0xFF004D40)),
@@ -327,9 +351,13 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
                     const SizedBox(width: 6),
                     InkWell(
                       onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF1F5F9),
+                          shape: BoxShape.circle,
+                        ),
                         child: _isUpdatingLocation
                             ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF004D40)))
                             : const Icon(Icons.refresh_rounded, size: 14, color: Color(0xFF004D40)),
@@ -344,55 +372,98 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
                   // -- Shop Switcher ----------------------------------------
                   const Text('Active Shop', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.5)),
                   const SizedBox(height: 6),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        ..._shops.asMap().entries.map((entry) {
-                          final i = entry.key;
-                          final shop = entry.value;
-                          final isActive = i == _activeShopIndex;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: GestureDetector(
-                              onTap: () => _switchShop(i),
-                              onLongPress: () => _editShop(shop),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: isActive ? const Color(0xFF004D40) : const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: isActive ? const Color(0xFF004D40) : const Color(0xFFE2E8F0),
-                                    width: isActive ? 2 : 1,
+                  Stack(
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ..._shops.asMap().entries.map((entry) {
+                              final i = entry.key;
+                              final shop = entry.value;
+                              final isActive = i == _activeShopIndex;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  decoration: BoxDecoration(
+                                    color: isActive ? const Color(0xFF004D40) : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: isActive ? const Color(0xFF004D40) : const Color(0xFFE2E8F0),
+                                      width: isActive ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        InkWell(
+                                          onTap: () => _switchShop(i),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(_typeEmoji(shop['responder_type']), style: const TextStyle(fontSize: 13)),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  shop['shop_name'] ?? 'Shop',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isActive ? Colors.white : const Color(0xFF334155),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        // Independent tap target — edit no longer hides
+                                        // behind a long-press only the active chip hints at.
+                                        if (isActive)
+                                          InkWell(
+                                            onTap: () => _editShop(shop),
+                                            child: const Padding(
+                                              padding: EdgeInsets.only(right: 10, top: 8, bottom: 8, left: 2),
+                                              child: Icon(Icons.edit_outlined, size: 14, color: Colors.white70),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(_typeEmoji(shop['responder_type']), style: const TextStyle(fontSize: 13)),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      shop['shop_name'] ?? 'Shop',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: isActive ? Colors.white : const Color(0xFF334155),
-                                      ),
-                                    ),
-                                    if (isActive) ...[
-                                      const SizedBox(width: 4),
-                                      const Icon(Icons.edit_outlined, size: 11, color: Colors.white60),
-                                    ],
-                                  ],
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                      // Scroll hint — with 3+ shops the row is likely wider than
+                      // the screen; a plain fade is invisible on this white
+                      // header, so use a small chevron chip instead.
+                      if (_shops.length > 2)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          child: IgnorePointer(
+                            child: Container(
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.only(left: 6),
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [Color(0x00FFFFFF), Color(0xFFFFFFFF)],
+                                  stops: [0.0, 0.55],
                                 ),
                               ),
+                              child: const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFF94A3B8)),
                             ),
-                          );
-                        }).toList(),
-                      ],
-                    ),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ],
@@ -403,8 +474,6 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
           Expanded(
             child: _LiveRequestsFeed(
               matchingCategories: _matchingCategories(),
-              showAll: _showAll,
-              onShowAllChanged: (v) => setState(() => _showAll = v),
               shopName: activeShop?['shop_name'] ?? 'Unknown Shop',
               currentPosition: _currentPosition,
             ),
@@ -527,15 +596,11 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
 /// on top for live updates rather than being the only source of data.
 class _LiveRequestsFeed extends StatefulWidget {
   final List<String> matchingCategories;
-  final bool showAll;
-  final ValueChanged<bool> onShowAllChanged;
   final String shopName;
   final Position? currentPosition;
 
   const _LiveRequestsFeed({
     required this.matchingCategories,
-    required this.showAll,
-    required this.onShowAllChanged,
     required this.shopName,
     this.currentPosition,
   });
@@ -548,6 +613,7 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
   static const _visibleStatuses = {'open', 'active', 'matched'};
 
   List<Map<String, dynamic>> _requests = [];
+  Set<String> _offeredRequestIds = {};
   StreamSubscription<List<Map<String, dynamic>>>? _liveSub;
   bool _loading = true;
   String? _error;
@@ -567,24 +633,41 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
   Future<void> _load() async {
     if (mounted) setState(() => _error = null);
     try {
-      final data = await Supabase.instance.client
-          .from('requests')
-          .select()
-          .order('created_at', ascending: false)
-          .timeout(const Duration(seconds: 15));
+      final userId = AuthService.currentUserId;
+
+      // Fetch requests and my existing offers in parallel
+      final results = await Future.wait([
+        Supabase.instance.client
+            .from('requests')
+            .select()
+            .order('created_at', ascending: false)
+            .timeout(const Duration(seconds: 15)),
+        if (userId != null)
+          Supabase.instance.client
+              .from('offers')
+              .select('request_id')
+              .eq('user_id', userId)
+              .timeout(const Duration(seconds: 10))
+        else
+          Future.value(<dynamic>[]),
+      ]);
+
+      final data = results[0] as List<dynamic>;
+      final myOffers = results[1] as List<dynamic>;
+      final offeredIds = myOffers
+          .map((o) => (o as Map)['request_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
 
       debugPrint('[PingFeed] fetched ${data.length} rows from requests');
-      if (data.isNotEmpty) {
-        debugPrint('[PingFeed] statuses=${data.map((r) => r['status']).toSet()}');
-        debugPrint('[PingFeed] categories=${data.map((r) => r['category']).toSet()}');
-      }
+      debugPrint('[PingFeed] already offered on ${offeredIds.length} pings');
 
       if (!mounted) return;
       setState(() {
         _requests = _visibleOnly(data);
+        _offeredRequestIds = offeredIds;
         _loading = false;
       });
-      debugPrint('[PingFeed] visible after status filter: ${_requests.length}');
       _listenForLiveUpdates();
     } catch (e) {
       debugPrint('[PingFeed] FETCH ERROR: $e');
@@ -661,28 +744,12 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
     final matchingCats = widget.matchingCategories;
     final allActive = List<Map<String, dynamic>>.from(_requests);
 
-    final matchingRequests = allActive.where((r) {
+    final requests = allActive.where((r) {
       return matchingCats.isEmpty || matchingCats.contains(r['category'] ?? '');
     }).toList();
 
-    final outsideRequests = allActive.where((r) {
-      return matchingCats.isNotEmpty && !matchingCats.contains(r['category'] ?? '');
-    }).toList();
-
-    // Never strand the merchant on a blank list: if nothing matches their shop
-    // category but Pings do exist, show everything instead of rendering zero
-    // rows. Reachable with legacy categories such as 'Community Updates', which
-    // no _matchingCategories() branch lists.
-    final autoFellBack = matchingRequests.isEmpty && allActive.isNotEmpty;
-
-    // When showing all, place category-matched requests first
-    final requests = (widget.showAll || autoFellBack)
-        ? [...matchingRequests, ...outsideRequests]
-        : matchingRequests;
-    final outsideCount = outsideRequests.length;
-
     debugPrint('[PingFeed] shopCats=$matchingCats totalActive=${allActive.length} '
-        'matching=${matchingRequests.length} outside=$outsideCount rendering=${requests.length}');
+        'rendering=${requests.length}');
 
     if (allActive.isEmpty) {
       return ListView(
@@ -706,117 +773,53 @@ class _LiveRequestsFeedState extends State<_LiveRequestsFeed> {
       );
     }
 
+    if (requests.isEmpty) {
+      return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 80),
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.filter_alt_off_rounded, size: 48, color: Color(0xFFCBD5E1)),
+                  SizedBox(height: 12),
+                  Text('No Pings for your category right now',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+                  SizedBox(height: 6),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      "There are active Pings nearby, just none matching this shop's category yet.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+      );
+    }
+
     return Container(
       color: Colors.transparent,
       child: Column(
         children: [
-          // Quick Filter Toggle Pill Bar
-          if (matchingCats.isNotEmpty && allActive.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: const Color(0xFFF1F5F9),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () => widget.onShowAllChanged(true),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: widget.showAll ? const Color(0xFF004D40) : Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: widget.showAll ? const Color(0xFF004D40) : const Color(0xFFCBD5E1),
-                                ),
-                              ),
-                              child: Text(
-                                'All Pings (${allActive.length})',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: widget.showAll ? Colors.white : const Color(0xFF475569),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () => widget.onShowAllChanged(false),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: !widget.showAll ? const Color(0xFF004D40) : Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: !widget.showAll ? const Color(0xFF004D40) : const Color(0xFFCBD5E1),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    'Shop Category (${matchingRequests.length})',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: !widget.showAll ? Colors.white : const Color(0xFF475569),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          if (autoFellBack)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFFDE68A)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFFD97706)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'No Pings match your shop category yet — showing all '
-                      '${allActive.length} active Ping${allActive.length > 1 ? 's' : ''}.',
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFB45309)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
           Expanded(
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               itemCount: requests.length,
               itemBuilder: (context, index) {
+                final req = requests[index];
                 return _RequestCard(
-                  request: requests[index],
+                  request: req,
                   shopName: widget.shopName,
                   currentPosition: widget.currentPosition,
-                  dimmed: !autoFellBack && widget.showAll && matchingCats.isNotEmpty &&
-                          !matchingCats.contains(requests[index]['category'] ?? ''),
+                  alreadyOffered: _offeredRequestIds.contains(req['id']?.toString()),
+                  onOfferSent: (requestId) {
+                    setState(() => _offeredRequestIds.add(requestId));
+                  },
                 );
               },
             ),
@@ -831,24 +834,35 @@ class _RequestCard extends StatelessWidget {
   final Map<String, dynamic> request;
   final String shopName;
   final Position? currentPosition;
-  final bool dimmed;
+  final bool alreadyOffered;
+  final void Function(String requestId)? onOfferSent;
+
   const _RequestCard({
     required this.request,
     required this.shopName,
     this.currentPosition,
-    this.dimmed = false,
+    this.alreadyOffered = false,
+    this.onOfferSent,
   });
 
   String _fulfillmentLabel(String type) {
     switch (type) {
-      case 'delivery': return '🛵 Express Delivery';
-      case 'pickup':   return '🛍️ Reserve for Pickup';
-      case 'visit':    return '🔧 Schedule Site Visit';
-      case 'reserve':  return '📅 Inquire / Reserve';
-      case 'status':   return '📸 Live Photo / Status';
-      default:         return '✨ $type';
+      case 'delivery': return 'Express Delivery';
+      case 'pickup':   return 'Reserve for Pickup';
+      case 'visit':    return 'Schedule Site Visit';
+      case 'reserve':  return 'Inquire / Reserve';
+      case 'status':   return 'Live Photo / Status';
+      case 'onsite':   return 'Come to Them';
+      case 'go_to':    return 'Go to Location';
+      case 'remote':   return 'Remote Help';
+      default:         return type;
     }
   }
+
+  // Fulfillment types where the merchant physically has to close a distance
+  // gap — proximity is a hard constraint on whether they can even respond,
+  // not just a nice-to-know, so it earns a louder badge than the default.
+  static const _proximitySensitive = {'visit', 'onsite', 'go_to'};
 
   @override
   Widget build(BuildContext context) {
@@ -870,8 +884,9 @@ class _RequestCard extends StatelessWidget {
     final vehicleModel    = tags['vehicle_model'] ?? tags['spec_1'] ?? '';
     final partSpec        = tags['part_spec'] ?? tags['spec_2'] ?? '';
     final airconPreferred = tags['aircon_preferred'] == true;
+    final isCompleted     = isMatched && tags['order_stage'] == 'completed';
 
-    String distanceLabel = '?? 1.2 km';
+    String distanceLabel = 'Nearby';
     if (currentPosition != null && tags['lat'] != null && tags['lng'] != null) {
       try {
         final reqLat = (tags['lat'] as num).toDouble();
@@ -882,9 +897,10 @@ class _RequestCard extends StatelessWidget {
           reqLat,
           reqLng,
         );
-        distanceLabel = '📍 $dist away';
+        distanceLabel = '$dist away';
       } catch (_) {}
     }
+    final proximityMatters = _proximitySensitive.contains(fulfillment);
 
     String emoji = '📌';
     if (category.contains('Parts'))     emoji = '🚗';
@@ -892,20 +908,24 @@ class _RequestCard extends StatelessWidget {
     if (category.contains('Rooms'))     emoji = '🏠';
     if (category.contains('Community')) emoji = '📍';
 
-    final cardColor   = isMatched ? const Color(0xFFECFDF5) : Colors.white;
-    final borderColor = isMatched ? const Color(0xFFD1FAE5) : const Color(0xFFE2E8F0);
+    final cardColor   = isMatched      ? const Color(0xFFEFF6FF)
+                      : alreadyOffered ? const Color(0xFFF0FDF4)
+                      : Colors.white;
+    final borderColor = isMatched      ? const Color(0xFFBFDBFE)
+                      : alreadyOffered ? const Color(0xFF86EFAC)
+                      : const Color(0xFFE2E8F0);
+    final borderWidth = (isMatched || alreadyOffered) ? 1.5 : 1.0;
 
-    return Opacity(
-      opacity: dimmed ? 0.6 : 1.0,
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 16),
+    return Card(
+        margin: const EdgeInsets.only(bottom: 14),
+        elevation: 0,
         color: cardColor,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: borderColor),
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(color: borderColor, width: borderWidth),
         ),
         child: InkWell(
-          onTap: () {
+          onTap: () async {
             if (isMatched) {
               showModalBottomSheet(
                 context: context,
@@ -913,7 +933,7 @@ class _RequestCard extends StatelessWidget {
                 builder: (_) => OrderSummarySheet(request: request),
               );
             } else {
-              showModalBottomSheet(
+              final sent = await showModalBottomSheet<bool>(
                 context: context,
                 isScrollControlled: true,
                 builder: (_) => OfferBottomSheet(
@@ -922,71 +942,108 @@ class _RequestCard extends StatelessWidget {
                   shopName: shopName,
                 ),
               );
+              if (sent == true && request['id'] != null) {
+                onOfferSent?.call(request['id'].toString());
+              }
             }
           },
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
             child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header Row: Category + Fulfillment Breadcrumb (Left) & Distance Badge (Right)
+                // ── Who's asking — leads the card, like any marketplace listing ──
+                PingerHeader(
+                  userId: request['user_id']?.toString(),
+                  createdAt: request['created_at']?.toString(),
+                  // Proximity is a hard constraint for site-visit / come-to-them
+                  // requests, so it gets a bolder, bordered badge there — for
+                  // pickup/delivery it's just background context.
+                  trailing: Container(
+                    padding: EdgeInsets.symmetric(horizontal: proximityMatters ? 10 : 9, vertical: proximityMatters ? 6 : 5),
+                    decoration: BoxDecoration(
+                      color: proximityMatters ? const Color(0xFFDCFCE7) : const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(50),
+                      border: proximityMatters ? Border.all(color: const Color(0xFF86EFAC), width: 1.2) : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.near_me_rounded, size: proximityMatters ? 13 : 11, color: const Color(0xFF15803D)),
+                        const SizedBox(width: 4),
+                        Text(
+                          distanceLabel,
+                          style: TextStyle(
+                            fontSize: proximityMatters ? 12 : 11,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF15803D),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+                const Divider(color: Color(0xFFF1F5F9), height: 1),
+                const SizedBox(height: 14),
+
+                // ── What they need — status is already told by the card's
+                // tint/border and the action button, so this chip just
+                // describes the category instead of re-stating state ──
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isMatched ? Colors.white : const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        child: Text(
+                          '$emoji  $category  ·  ${_fulfillmentLabel(fulfillment)}',
+                          style: GoogleFonts.outfit(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF475569),
                           ),
-                          child: Text(
-                            '$emoji $category • ${_fulfillmentLabel(fulfillment)}',
-                            style: GoogleFonts.outfit(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF334155),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _Badge(label: distanceLabel, bg: const Color(0xFFE2F0F0), fg: const Color(0xFF004D40)),
+                    if (subCategory.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        child: Text(
+                          subCategory,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFB45309),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
 
-                if (subCategory.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFFBEB),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFFFDE68A)),
-                    ),
-                    child: Text(
-                      '🏷️ $subCategory',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
-                    ),
-                  ),
-                ],
-
                 const SizedBox(height: 12),
 
-                // Item Title / Description
+                // Item Title / Description — the single most important line
+                // on the card, so it should out-weigh the budget and chips
                 Text(
                   description,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.outfit(
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: const Color(0xFF0F172A),
                     height: 1.3,
@@ -998,114 +1055,77 @@ class _RequestCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(10),
-                      border: const Border(
-                        left: BorderSide(color: Color(0xFF004D40), width: 3),
-                      ),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Wrap(
                       spacing: 12,
-                      runSpacing: 4,
+                      runSpacing: 6,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         if (vehicleModel.isNotEmpty)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.directions_car_outlined, size: 13, color: Color(0xFF2563EB)),
-                              const SizedBox(width: 4),
-                              Text(vehicleModel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF))),
-                            ],
-                          ),
+                          _SpecChip(icon: Icons.directions_car_rounded, label: vehicleModel, iconColor: const Color(0xFF2563EB), textColor: const Color(0xFF1E40AF)),
                         if (partSpec.isNotEmpty)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.build_circle_outlined, size: 13, color: Color(0xFFEA580C)),
-                              const SizedBox(width: 4),
-                              Text(partSpec, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFC2410C))),
-                            ],
-                          ),
+                          _SpecChip(icon: Icons.build_rounded, label: partSpec, iconColor: const Color(0xFFEA580C), textColor: const Color(0xFFC2410C)),
                         if (airconPreferred)
-                          const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.ac_unit_rounded, size: 13, color: Color(0xFF0EA5E9)),
-                              SizedBox(width: 4),
-                              Text('Aircon Preferred', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0284C7))),
-                            ],
-                          ),
+                          const _SpecChip(icon: Icons.ac_unit_rounded, label: 'Aircon Preferred', iconColor: Color(0xFF0EA5E9), textColor: Color(0xFF0284C7)),
                       ],
                     ),
                   ),
                 ],
 
-                const SizedBox(height: 14),
-                const Divider(color: Color(0xFFE2E8F0), height: 1),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
+                const Divider(color: Color(0xFFEFF2F6), height: 1),
+                const SizedBox(height: 16),
 
-                // Footer Row: Budget Highlight + Send Offer Action Button
+                // Footer: Budget + Action Button
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
-                          style: GoogleFonts.outfit(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF64748B),
-                            letterSpacing: 0.5,
+                    // Budget block
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
+                            style: GoogleFonts.outfit(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF94A3B8),
+                              letterSpacing: 0.8,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _formatAccountingCurrency(maxBudget),
-                          style: GoogleFonts.outfit(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            color: const Color(0xFF004D40),
-                            letterSpacing: -0.5,
+                          const SizedBox(height: 2),
+                          Text(
+                            _formatAccountingCurrency(maxBudget),
+                            style: GoogleFonts.outfit(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: const Color(0xFF004D40),
+                              letterSpacing: -0.3,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+
+                    const SizedBox(width: 12),
+
+                    // ── Action Button ──────────────────────────
                     if (isMatched)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF10B981),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Row(
-                          children: [
-                            Text('🎉 ', style: TextStyle(fontSize: 14)),
-                            Text('Offer Accepted', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                          ],
-                        ),
+                      _StatusButton(
+                        label: isCompleted ? 'Completed' : 'Accepted',
+                        icon: isCompleted ? Icons.verified_rounded : Icons.handshake_rounded,
+                        bg: const Color(0xFF10B981),
+                        fg: Colors.white,
                       )
-                    else
-                      Container(
-                        height: 44,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF004D40), Color(0xFF00695C)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: const [
-                            BoxShadow(color: Color(0x20004D40), blurRadius: 10, offset: Offset(0, 4)),
-                          ],
-                        ),
-                        child: ElevatedButton(
-                          onPressed: () => showModalBottomSheet(
+                    else if (alreadyOffered)
+                      GestureDetector(
+                        onTap: () async {
+                          final sent = await showModalBottomSheet<bool>(
                             context: context,
                             isScrollControlled: true,
                             builder: (_) => OfferBottomSheet(
@@ -1113,34 +1133,141 @@ class _RequestCard extends StatelessWidget {
                               request: request,
                               shopName: shopName,
                             ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(0, 44),
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.bolt_rounded, size: 18, color: Color(0xFFFF8C42)),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Send Offer',
-                                style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w800),
-                              ),
-                            ],
-                          ),
+                          );
+                          if (sent == true && request['id'] != null) {
+                            onOfferSent?.call(request['id'].toString());
+                          }
+                        },
+                        child: _StatusButton(
+                          label: 'Offer Sent',
+                          icon: Icons.check_rounded,
+                          bg: const Color(0xFFDCFCE7),
+                          fg: const Color(0xFF15803D),
+                          trailingIcon: Icons.arrow_forward_ios_rounded,
+                          trailingIconSize: 10,
+                        ),
+                      )
+                    else
+                      GestureDetector(
+                        onTap: () async {
+                          final sent = await showModalBottomSheet<bool>(
+                            context: context,
+                            isScrollControlled: true,
+                            builder: (_) => OfferBottomSheet(
+                              requestId: request['id'],
+                              request: request,
+                              shopName: shopName,
+                            ),
+                          );
+                          if (sent == true && request['id'] != null) {
+                            onOfferSent?.call(request['id'].toString());
+                          }
+                        },
+                        child: _StatusButton(
+                          label: 'Send Offer',
+                          icon: Icons.send_rounded,
+                          bg: const Color(0xFF004D40),
+                          fg: Colors.white,
                         ),
                       ),
                   ],
+                ),
+
+                const SizedBox(height: 8),
+
+                // ── Fine print — reference info, kept low-contrast and
+                // out of the way of the budget/action decision ──
+                Text(
+                  transactionNumber(request['id']),
+                  style: const TextStyle(fontSize: 10, color: Color(0xFFCBD5E1), fontWeight: FontWeight.w600, letterSpacing: 0.3),
                 ),
               ],
             ),
           ),
         ),
+    );
+  }
+}
+
+class _StatusButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color bg;
+  final Color fg;
+  final IconData? trailingIcon;
+  final double trailingIconSize;
+  const _StatusButton({
+    required this.label,
+    required this.icon,
+    required this.bg,
+    required this.fg,
+    this.trailingIcon,
+    this.trailingIconSize = 12,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(50),
+        boxShadow: bg == const Color(0xFF004D40)
+            ? [BoxShadow(color: const Color(0xFF004D40).withValues(alpha: 0.25), blurRadius: 14, offset: const Offset(0, 5))]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: GoogleFonts.outfit(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: fg,
+            ),
+          ),
+          if (trailingIcon != null) ...[
+            const SizedBox(width: 6),
+            Icon(trailingIcon, size: trailingIconSize, color: fg.withValues(alpha: 0.6)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SpecChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color iconColor;
+  final Color textColor;
+  const _SpecChip({
+    required this.icon,
+    required this.label,
+    required this.iconColor,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(50),
+        border: Border.all(color: iconColor.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: iconColor),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor)),
+        ],
       ),
     );
   }
@@ -1159,10 +1286,10 @@ class _Badge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(50),
         border: border != null ? Border.all(color: border!) : null,
       ),
-      child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: fg)),
+      child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg)),
     );
   }
 }

@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
+import 'premium_button.dart';
 
 class RequestBottomSheet extends StatefulWidget {
   final String? initialCategory;
@@ -26,6 +27,7 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
 
   String? _selectedSubCategory;
   bool _airconPreferred = false;
+  String _urgencyLevel = 'normal';
 
   final List<Map<String, String>> _allCategories = [
     {'name': 'Parts & Hardware', 'emoji': '🚗'},
@@ -46,6 +48,7 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
   }
 
   void _setFulfillmentDefaults(String cat) {
+    _urgencyLevel = 'normal';
     switch (cat) {
       case 'Express Rider':
       case 'Food & Catering':
@@ -58,9 +61,19 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
       case 'Community Updates':
         _fulfillmentType = 'status';
         break;
+      case 'Community Helpers':
+        _fulfillmentType = 'onsite';
+        break;
       default:
         _fulfillmentType = 'pickup';
         break;
+    }
+  }
+
+  String _getFulfillmentLabel() {
+    switch (_category) {
+      case 'Community Helpers': return 'Where Do You Need Help?';
+      default:                  return 'Fulfillment Method';
     }
   }
 
@@ -157,6 +170,9 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
     }
     if (_category == 'Rooms & Boarding') {
       tags['aircon_preferred'] = _airconPreferred;
+    }
+    if (_category == 'Community Helpers') {
+      tags['urgency_level'] = _urgencyLevel;
     }
 
     setState(() => _isSubmitting = true);
@@ -373,15 +389,79 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
       );
     }
 
+    if (_category == 'Community Helpers') {
+      const urgencyOptions = [
+        {'id': 'normal',    'label': 'Not Urgent',  'emoji': '🟢', 'color': 0xFF10B981},
+        {'id': 'urgent',    'label': 'Urgent',       'emoji': '🟡', 'color': 0xFFF59E0B},
+        {'id': 'emergency', 'label': 'Emergency',    'emoji': '🔴', 'color': 0xFFEF4444},
+      ];
+      return _buildGlassCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Urgency Level',
+              style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFF94A3B8), letterSpacing: 0.3),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: urgencyOptions.map((opt) {
+                final isSelected = _urgencyLevel == opt['id'];
+                final color = Color(opt['color'] as int);
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _urgencyLevel = opt['id'] as String),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isSelected ? color.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? color : Colors.white.withValues(alpha: 0.1),
+                          width: isSelected ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(opt['emoji'] as String, style: const TextStyle(fontSize: 16)),
+                          const SizedBox(height: 4),
+                          Text(
+                            opt['label'] as String,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? color : const Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      );
+    }
+
     return const SizedBox.shrink();
   }
 
   Widget _buildFulfillmentSelector() {
-    final options = [
-      {'id': 'pickup',   'label': 'Pickup',   'icon': Icons.storefront},
-      {'id': 'delivery', 'label': 'Delivery', 'icon': Icons.two_wheeler},
-      {'id': 'visit',    'label': 'On-Site',  'icon': Icons.home_repair_service},
-    ];
+    final options = _category == 'Community Helpers'
+        ? [
+            {'id': 'onsite',  'label': 'Come to Me',   'icon': Icons.home_rounded},
+            {'id': 'go_to',   'label': 'At a Place',   'icon': Icons.location_on_rounded},
+            {'id': 'remote',  'label': 'Remote Help',  'icon': Icons.phone_in_talk_rounded},
+          ]
+        : [
+            {'id': 'pickup',   'label': 'Pickup',   'icon': Icons.storefront},
+            {'id': 'delivery', 'label': 'Delivery', 'icon': Icons.two_wheeler},
+            {'id': 'visit',    'label': 'On-Site',  'icon': Icons.home_repair_service},
+          ];
 
     return Row(
       children: options.map((opt) {
@@ -586,7 +666,7 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
                     // Conditional Fields (Vehicle/Part/Aircon)
                     _buildConditionalFields(),
 
-                    if (_category == 'Parts & Hardware' || _category == 'Rooms & Boarding')
+                    if (_category == 'Parts & Hardware' || _category == 'Rooms & Boarding' || _category == 'Community Helpers')
                       const SizedBox(height: 16),
 
                     // ── Card 1: Description Input ────────────────────────
@@ -675,7 +755,7 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Fulfillment Method',
+                            _getFulfillmentLabel(),
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -717,42 +797,27 @@ class _RequestBottomSheetState extends State<RequestBottomSheet> {
                           ),
                         ],
                       ),
-                      child: SizedBox(
+                      child: PremiumButton(
+                        onPressed: _isSubmitting ? null : _submitRequest,
+                        isLoading: _isSubmitting,
                         height: 52,
-                        child: ElevatedButton(
-                          onPressed: _isSubmitting ? null : _submitRequest,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF004D40),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
+                        color: const Color(0xFF004D40),
+                        borderRadius: BorderRadius.circular(18),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Send Ping Now',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                                color: Colors.white,
+                              ),
                             ),
-                          ),
-                          child: _isSubmitting
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2.5,
-                                  ),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      'Send Ping Now',
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: -0.2,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Icon(Icons.arrow_forward_rounded, size: 20),
-                                  ],
-                                ),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.arrow_forward_rounded, size: 20, color: Colors.white),
+                          ],
                         ),
                       ),
                     ),

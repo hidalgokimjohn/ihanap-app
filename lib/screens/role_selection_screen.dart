@@ -39,7 +39,13 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
   }
 
   Future<void> _selectMerchantRole() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
+
+    // Capture before any async gap
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
     try {
       final user = AuthService.currentUser;
       if (user == null) return;
@@ -51,10 +57,12 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
           .eq('profile_id', user.id)
           .order('created_at', ascending: true);
 
-      final shopList = List<Map<String, dynamic>>.from(shopsData);
+      // Safe cast — avoids IdentityMap<String,dynamic> crash
+      final shopList = (shopsData as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
 
       if (shopList.isNotEmpty) {
-        // User already has shop(s), activate the first one
         final activeShop = shopList.first;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('active_shop_id', activeShop['id'] ?? '');
@@ -62,12 +70,10 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
         await prefs.setString('responder_type', activeShop['responder_type'] ?? '');
         await prefs.setString('responder_owner_name', activeShop['owner_name'] ?? '');
 
-        await AuthService.updateProfile({
-          'primary_role': 'responder',
-        });
+        await AuthService.updateProfile({'primary_role': 'responder'});
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(
               content: Text('Switched to Merchant mode (${activeShop['shop_name']})'),
               backgroundColor: const Color(0xFF004D40),
@@ -78,25 +84,30 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
         widget.onRoleSelected();
         return;
       }
+
+      // No shops found — open registration screen
+      if (!mounted) return;
+      final result = await navigator.push<bool>(
+        MaterialPageRoute(builder: (_) => const ResponderRegistrationScreen()),
+      );
+
+      if (result == true) {
+        await AuthService.updateProfile({'primary_role': 'responder'});
+        widget.onRoleSelected();
+      }
     } catch (e) {
-      debugPrint('Error checking existing shops: $e');
+      debugPrint('Error in merchant role selection: $e');
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Something went wrong. Please try again.'),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
-    }
-
-    // No shops found: open registration screen to create a new shop
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const ResponderRegistrationScreen()),
-    );
-
-    if (result == true) {
-      final user = AuthService.currentUser;
-      if (user != null) {
-        await AuthService.updateProfile({
-          'primary_role': 'responder',
-        });
-      }
-      widget.onRoleSelected();
     }
   }
 
@@ -176,7 +187,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                       // ── Merchant Card ────────────────────────────────────
                       _RoleCard(
                         emoji: '🏪',
-                        title: 'Merchant / Responder',
+                        title: 'Merchant / Shop Owner',
                         subtitle: 'I have a shop, auto parts store, room, or courier service to offer.',
                         badgeText: 'Business / Seller',
                         badgeColor: const Color(0xFFFFF3E0),
