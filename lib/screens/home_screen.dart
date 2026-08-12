@@ -31,6 +31,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
 
+  // Reported by MyRequestsScreen so the banner can collapse its onboarding
+  // copy once the user already has something broadcasting — that pitch
+  // is only useful before someone has sent their first Ping.
+  final ValueNotifier<int> _activePingsCount = ValueNotifier(0);
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     LocationService.currentLocationNotifier.removeListener(_onLocationChanged);
     _searchController.dispose();
+    _activePingsCount.dispose();
     super.dispose();
   }
 
@@ -233,80 +239,111 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      ValueListenableBuilder<int>(
+                        valueListenable: _activePingsCount,
+                        builder: (context, activeCount, _) {
+                          // Once a Ping is already broadcasting, the onboarding
+                          // pitch is noise — a returning user needs status, not
+                          // a re-explanation of what the app does.
+                          if (activeCount > 0) {
+                            return Row(
+                              children: [
+                                const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFF10B981)),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '$activeCount Ping${activeCount > 1 ? 's' : ''} live — broadcasting to nearby shops',
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Need parts, rooms, or a rider?',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Broadcast your request to nearby verified shops in seconds.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF94A3B8),
+                                  height: 1.3,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              'Need parts, rooms, or a rider?',
-                              style: GoogleFonts.outfit(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                height: 1.2,
+                          InkWell(
+                            onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
+                            borderRadius: BorderRadius.circular(20),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.location_on_rounded, size: 11, color: Color(0xFF10B981)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _currentBarangay.isNotEmpty
+                                        ? '$_currentBarangay, $_currentCityName'
+                                        : _currentCityName,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _isUpdatingLocation
+                                      ? const SizedBox(
+                                          width: 11,
+                                          height: 11,
+                                          child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
+                                        )
+                                      : const Icon(Icons.refresh_rounded, size: 13, color: Colors.white70),
+                                ],
                               ),
                             ),
                           ),
+                          const Spacer(),
+                          const NearbyShopsBanner(compact: true),
                         ],
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Broadcast your request to nearby verified shops in seconds.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF94A3B8),
-                          height: 1.3,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      InkWell(
-                        onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.location_on_rounded, size: 11, color: Color(0xFF10B981)),
-                              const SizedBox(width: 4),
-                              Text(
-                                _currentBarangay.isNotEmpty
-                                    ? '$_currentBarangay, $_currentCityName'
-                                    : _currentCityName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              _isUpdatingLocation
-                                  ? const SizedBox(
-                                      width: 11,
-                                      height: 11,
-                                      child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
-                                    )
-                                  : const Icon(Icons.refresh_rounded, size: 13, color: Colors.white70),
-                            ],
-                          ),
-                        ),
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // ── Nearby Shops Banner ──────────────────────────────────────────
-              const NearbyShopsBanner(),
-
               // My Pings List
               Expanded(
                 child: MyRequestsScreen(
                   searchQuery: _searchController.text,
+                  activePingsNotifier: _activePingsCount,
                 ),
               ),
             ],

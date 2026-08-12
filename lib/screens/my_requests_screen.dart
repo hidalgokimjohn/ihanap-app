@@ -22,10 +22,12 @@ bool _isOrderCompleted(Map<String, dynamic> req) {
 
 class MyRequestsScreen extends StatefulWidget {
   final String searchQuery;
+  final ValueNotifier<int>? activePingsNotifier;
 
   const MyRequestsScreen({
     super.key,
     this.searchQuery = '',
+    this.activePingsNotifier,
   });
 
   @override
@@ -34,7 +36,7 @@ class MyRequestsScreen extends StatefulWidget {
 
 class _MyRequestsScreenState extends State<MyRequestsScreen> {
   final Set<String> _dismissedIds = {};
-  String _filter = 'active'; // 'active' | 'matched'
+  String _filter = 'active'; // 'active' | 'matched' | 'completed'
 
   StreamSubscription<List<Map<String, dynamic>>>? _sub;
   List<Map<String, dynamic>> _pings = [];
@@ -44,10 +46,22 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
   Timer? _debounce;
   List<Map<String, dynamic>>? _pendingSnapshot;
 
+  // Completed pings are paginated separately — they're immutable history
+  // that doesn't need real-time updates, so streaming all of them wastes resources.
+  static const _kCompletedPageSize = 15;
+  final List<Map<String, dynamic>> _completedPings = [];
+  int _completedOffset = 0;
+  bool _hasMoreCompleted = true;
+  bool _loadingMoreCompleted = false;
+  bool _completedInitiallyLoaded = false;
+  late final ScrollController _completedScrollController;
+
   @override
   void initState() {
     super.initState();
     _subscribe();
+    _completedScrollController = ScrollController()
+      ..addListener(_onCompletedScroll);
   }
 
   void _subscribe() {
@@ -101,7 +115,60 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
   void dispose() {
     _debounce?.cancel();
     _sub?.cancel();
+    _completedScrollController.dispose();
     super.dispose();
+  }
+
+  void _onCompletedScroll() {
+    final pos = _completedScrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200 &&
+        !_loadingMoreCompleted &&
+        _hasMoreCompleted) {
+      _fetchCompletedPings();
+    }
+  }
+
+  Future<void> _fetchCompletedPings({bool reset = false}) async {
+    if (_loadingMoreCompleted) return;
+    final userId = AuthService.currentUserId;
+    if (userId == null) return;
+
+    if (reset && mounted) {
+      setState(() {
+        _completedOffset = 0;
+        _hasMoreCompleted = true;
+        _completedPings.clear();
+        _completedInitiallyLoaded = false;
+      });
+    }
+    if (!_hasMoreCompleted) return;
+
+    if (mounted) setState(() => _loadingMoreCompleted = true);
+    try {
+      final data = await Supabase.instance.client
+          .from('requests')
+          .select()
+          .eq('user_id', userId)
+          .eq('status', 'matched')
+          .order('created_at', ascending: false)
+          .range(_completedOffset, _completedOffset + _kCompletedPageSize - 1);
+
+      final page = List<Map<String, dynamic>>.from(data)
+          .where(_isOrderCompleted)
+          .toList();
+
+      if (mounted) {
+        setState(() {
+          _completedPings.addAll(page);
+          _completedOffset += (data as List).length;
+          _hasMoreCompleted = (data).length >= _kCompletedPageSize;
+          _loadingMoreCompleted = false;
+          _completedInitiallyLoaded = true;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingMoreCompleted = false);
+    }
   }
 
   String _formatDateTime(String? iso) {
@@ -140,9 +207,24 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
     if (confirm != true) return;
 
     try {
+      // Preserve existing tags (spec chips, order stage, etc.) and record
+      // when the match happened — the transaction log needs this timestamp
+      // and nothing else currently captures it.
+      final rawTags = request['tags'];
+      final mergedTags = <String, dynamic>{};
+      if (rawTags is Map) {
+        mergedTags.addAll(Map<String, dynamic>.from(rawTags));
+      } else if (rawTags is String && rawTags.isNotEmpty) {
+        try {
+          mergedTags.addAll(Map<String, dynamic>.from(jsonDecode(rawTags)));
+        } catch (_) {}
+      }
+      mergedTags['matched_at'] = DateTime.now().toIso8601String();
+
       final response = await Supabase.instance.client.from('requests').update({
         'status': 'matched',
         'accepted_offer_id': offer['id'],
+        'tags': jsonEncode(mergedTags),
       }).eq('id', request['id']).select();
 
       if (response.isEmpty) {
@@ -252,11 +334,16 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
         final matchedPings = matchedRaw.where((req) => !_isOrderCompleted(req)).toList();
         final completedPings = matchedRaw.where(_isOrderCompleted).toList();
 
-        // Apply search filter to whichever tab is active
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.activePingsNotifier?.value = activePings.length;
+        });
+
+        // Completed tab uses its own paginated list, not the stream snapshot.
+        // Active/Matched still come from the real-time stream.
         var requests = switch (_filter) {
-          'matched' => matchedPings,
-          'completed' => completedPings,
-          _ => activePings,
+          'matched'   => matchedPings,
+          'completed' => _completedPings,
+          _           => activePings,
         };
         if (widget.searchQuery.trim().isNotEmpty) {
           final query = widget.searchQuery.toLowerCase().trim();
@@ -290,18 +377,22 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                     ),
                     const SizedBox(width: 8),
                     _FilterTab(
-                      label: 'Matched',
+                      label: 'Found',
                       count: matchedPings.length,
                       selected: _filter == 'matched',
                       onTap: () => setState(() => _filter = 'matched'),
-                      badge: matchedPings.isNotEmpty,
                     ),
                     const SizedBox(width: 8),
                     _FilterTab(
                       label: 'Completed',
                       count: completedPings.length,
                       selected: _filter == 'completed',
-                      onTap: () => setState(() => _filter = 'completed'),
+                      onTap: () {
+                        setState(() => _filter = 'completed');
+                        if (!_completedInitiallyLoaded) {
+                          _fetchCompletedPings(reset: true);
+                        }
+                      },
                     ),
                   ],
                 ),
@@ -311,62 +402,92 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
             // ── List ────────────────────────────────────────────────
             if (requests.isEmpty)
               Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                child: _filter == 'completed' && !_completedInitiallyLoaded
+                    ? const Center(child: CircularProgressIndicator(color: Color(0xFF004D40)))
+                    : Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Icon(
+                                isSearching
+                                    ? Icons.search_off_rounded
+                                    : switch (_filter) {
+                                        'matched'   => Icons.handshake_rounded,
+                                        'completed' => Icons.verified_rounded,
+                                        _           => Icons.bolt_rounded,
+                                      },
+                                size: 40,
+                                color: const Color(0xFF94A3B8),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              isSearching
+                                  ? 'No matching Pings found'
+                                  : switch (_filter) {
+                                      'matched'   => 'No Found Pings yet',
+                                      'completed' => 'No completed Pings yet',
+                                      _           => 'No active Pings yet',
+                                    },
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isSearching
+                                  ? 'Try searching for a different item or category.'
+                                  : switch (_filter) {
+                                      'matched'   => 'A shop responded to your Ping and you accepted their offer.',
+                                      'completed' => 'Finished transactions will be archived here.',
+                                      _           => 'Tap Send Ping below to broadcast your first request!',
+                                    },
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            ),
+                          ],
                         ),
-                        child: Icon(
-                          isSearching
-                              ? Icons.search_off_rounded
-                              : switch (_filter) {
-                                  'matched' => Icons.verified_rounded,
-                                  'completed' => Icons.task_alt_rounded,
-                                  _ => Icons.bolt_rounded,
-                                },
-                          size: 40,
-                          color: const Color(0xFF94A3B8),
-                        ),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        isSearching
-                            ? 'No matching Pings found'
-                            : switch (_filter) {
-                                'matched' => 'No matched Pings yet',
-                                'completed' => 'No completed Pings yet',
-                                _ => 'No active Pings yet',
-                              },
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        isSearching
-                            ? 'Try searching for a different item or category.'
-                            : switch (_filter) {
-                                'matched' => 'Accepted offers will appear here once you match with a merchant.',
-                                'completed' => 'Finished transactions will be archived here.',
-                                _ => 'Tap Send Ping below to broadcast your first request!',
-                              },
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                      ),
-                    ],
-                  ),
-                ),
               )
             else
               Expanded(
                 child: ListView.builder(
+                  controller: _filter == 'completed' ? _completedScrollController : null,
                   padding: const EdgeInsets.fromLTRB(14, 6, 14, 80),
-                  itemCount: requests.length,
+                  // +1 on completed tab for the load-more / end-of-list footer
+                  itemCount: _filter == 'completed' ? requests.length + 1 : requests.length,
                   itemBuilder: (context, index) {
+                    // Footer shown only on the completed tab after all cards
+                    if (_filter == 'completed' && index == requests.length) {
+                      if (_loadingMoreCompleted) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: Center(
+                            child: SizedBox(
+                              width: 20, height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF004D40)),
+                            ),
+                          ),
+                        );
+                      }
+                      if (!_hasMoreCompleted) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: Text(
+                              'All completed Pings loaded',
+                              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    }
             final req = requests[index];
             final reqId = (req['id'] ?? index).toString();
             final isOpen = req['status'] == 'active' || req['status'] == 'open';
@@ -478,7 +599,7 @@ class RequestWithOffersCard extends StatelessWidget {
   Color _statusColor(String s) {
     switch (s) {
       case 'completed': return const Color(0xFF15803D);
-      case 'matched':   return const Color(0xFF059669);
+      case 'matched':   return const Color(0xFF2563EB);
       case 'cancelled': return const Color(0xFF94A3B8);
       default:          return const Color(0xFFD97706);
     }
@@ -487,7 +608,7 @@ class RequestWithOffersCard extends StatelessWidget {
   Color _statusBg(String s) {
     switch (s) {
       case 'completed': return const Color(0xFFDCFCE7);
-      case 'matched':   return const Color(0xFFF0FDF4);
+      case 'matched':   return const Color(0xFFEFF6FF);
       case 'cancelled': return const Color(0xFFF1F5F9);
       default:          return const Color(0xFFFFFBEB);
     }
@@ -496,7 +617,7 @@ class RequestWithOffersCard extends StatelessWidget {
   String _statusLabel(String s) {
     switch (s) {
       case 'completed': return 'Completed';
-      case 'matched':   return 'Matched';
+      case 'matched':   return 'Found';
       case 'cancelled': return 'Cancelled';
       default:          return 'Open';
     }
@@ -504,8 +625,8 @@ class RequestWithOffersCard extends StatelessWidget {
 
   IconData _statusIcon(String s) {
     switch (s) {
-      case 'completed': return Icons.task_alt_rounded;
-      case 'matched':   return Icons.verified_rounded;
+      case 'completed': return Icons.verified_rounded;
+      case 'matched':   return Icons.handshake_rounded;
       case 'cancelled': return Icons.cancel_rounded;
       default:          return Icons.radio_button_checked_rounded;
     }
@@ -555,19 +676,13 @@ class RequestWithOffersCard extends StatelessWidget {
     final aircon        = tags['aircon_preferred'] == true;
     final txn           = transactionNumber(request['id']);
 
-    final authUser   = AuthService.currentUser;
-    final posterName = (authUser?.userMetadata?['full_name'] as String?)?.trim().isNotEmpty == true
-        ? authUser!.userMetadata!['full_name'] as String
-        : (authUser?.email ?? 'You');
-    final posterInitial = posterName.isNotEmpty ? posterName[0].toUpperCase() : 'Y';
-
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: isMatched ? const Color(0xFFECFDF5) : Colors.white,
+        color: isMatched ? const Color(0xFFEFF6FF) : Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: isMatched ? const Color(0xFF86EFAC) : const Color(0xFFE2E8F0),
+          color: isMatched ? const Color(0xFFBFDBFE) : const Color(0xFFE2E8F0),
           width: isMatched ? 1.5 : 1,
         ),
       ),
@@ -576,55 +691,28 @@ class RequestWithOffersCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Who posted it, and where it stands — identity leads,
-            // status trails, so cards read like a feed of requests
-            // rather than an anonymous list of tickets ──
+            // ── Category + status — this is a "my requests" screen, so
+            // whose Ping it is goes without saying; what matters at a
+            // glance is what kind of request it is and where it stands ──
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: const Color(0xFF004D40),
-                  child: Text(
-                    posterInitial,
-                    style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              posterName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF0F172A)),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(50),
-                            ),
-                            child: const Text(
-                              'You',
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFF64748B), letterSpacing: 0.3),
-                            ),
-                          ),
-                        ],
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isMatched ? const Color(0xFFDBEAFE) : const Color(0xFFE2F0F0),
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                    child: Text(
+                      '$category  ·  ${_fulfillmentLabel(fulfillmentType)}',
+                      style: GoogleFonts.outfit(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: isMatched ? const Color(0xFF1D4ED8) : const Color(0xFF004D40),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        formattedDate,
-                        style: GoogleFonts.plusJakartaSans(fontSize: 11, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w500),
-                      ),
-                    ],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -653,58 +741,16 @@ class RequestWithOffersCard extends StatelessWidget {
               ],
             ),
 
-            const SizedBox(height: 14),
-            const Divider(color: Color(0xFFF1F5F9), height: 1),
-            const SizedBox(height: 14),
-
-            // ── What was asked ────────────────────────────────────────
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: isMatched ? const Color(0xFFDCFCE7) : const Color(0xFFE2F0F0),
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    child: Text(
-                      '$category  ·  ${_fulfillmentLabel(fulfillmentType)}',
-                      style: GoogleFonts.outfit(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: isMatched ? const Color(0xFF15803D) : const Color(0xFF004D40),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                if (subCategory != null && subCategory.toString().isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFFBEB),
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    child: Text(
-                      subCategory.toString(),
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-
             const SizedBox(height: 12),
 
-            // ── Description ─────────────────────────────────────────
+            // ── What was asked — the single most important line on the
+            // card, so it carries the heaviest weight here ──
             Text(
               description,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.outfit(
-                fontSize: 16,
+                fontSize: 18,
                 fontWeight: FontWeight.w800,
                 color: const Color(0xFF0F172A),
                 height: 1.3,
@@ -712,7 +758,8 @@ class RequestWithOffersCard extends StatelessWidget {
             ),
 
             // ── Spec Chips ──────────────────────────────────────────
-            if (vehicleModel != null || partSpec != null || aircon) ...[
+            if (vehicleModel != null || partSpec != null || aircon ||
+                (subCategory != null && subCategory.toString().isNotEmpty)) ...[
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
@@ -725,6 +772,13 @@ class RequestWithOffersCard extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 6,
                   children: [
+                    if (subCategory != null && subCategory.toString().isNotEmpty)
+                      _SpecChip(
+                        icon: Icons.label_rounded,
+                        label: subCategory.toString(),
+                        iconColor: const Color(0xFFB45309),
+                        textColor: const Color(0xFFB45309),
+                      ),
                     if (vehicleModel != null && vehicleModel.toString().isNotEmpty)
                       _SpecChip(
                         icon: Icons.directions_car_rounded,
@@ -755,45 +809,46 @@ class RequestWithOffersCard extends StatelessWidget {
             const Divider(color: Color(0xFFEFF2F6), height: 1),
             const SizedBox(height: 14),
 
-            // ── Budget + Reference ────────────────────────────────────
+            // ── Budget ─────────────────────────────────────────────────
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
+                  style: GoogleFonts.outfit(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF94A3B8),
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _formatAccountingCurrency(maxBudget),
+                  style: GoogleFonts.outfit(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFF004D40),
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            // ── Fine print — reference info, not decision-relevant, so
+            // it's kept low-contrast and out of the way ──
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      category == 'Community Check' ? 'SPOTTER TIP' : 'MAX BUDGET',
-                      style: GoogleFonts.outfit(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF94A3B8),
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _formatAccountingCurrency(maxBudget),
-                      style: GoogleFonts.outfit(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF004D40),
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
+                Text(
+                  formattedDate,
+                  style: const TextStyle(fontSize: 10, color: Color(0xFFCBD5E1), fontWeight: FontWeight.w600),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    txn,
-                    style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w700, letterSpacing: 0.3),
-                  ),
+                Text(
+                  txn,
+                  style: const TextStyle(fontSize: 10, color: Color(0xFFCBD5E1), fontWeight: FontWeight.w600, letterSpacing: 0.3),
                 ),
               ],
             ),
@@ -1003,7 +1058,7 @@ class _OffersListState extends State<_OffersList> {
                               child: const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.verified_rounded, size: 15, color: Colors.white),
+                                  Icon(Icons.handshake_rounded, size: 15, color: Colors.white),
                                   SizedBox(width: 6),
                                   Text('Accepted', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
                                 ],
@@ -1105,7 +1160,6 @@ class _FilterTab extends StatelessWidget {
   final String label;
   final int count;
   final bool selected;
-  final bool badge;
   final VoidCallback onTap;
 
   const _FilterTab({
@@ -1113,7 +1167,6 @@ class _FilterTab extends StatelessWidget {
     required this.count,
     required this.selected,
     required this.onTap,
-    this.badge = false,
   });
 
   @override
@@ -1149,9 +1202,7 @@ class _FilterTab extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: selected
-                      ? Colors.white.withValues(alpha: 0.25)
-                      : (badge ? const Color(0xFF10B981) : const Color(0xFFE2E8F0)),
+                  color: selected ? Colors.white.withValues(alpha: 0.25) : const Color(0xFFE2E8F0),
                   borderRadius: BorderRadius.circular(50),
                 ),
                 child: Text(
@@ -1159,9 +1210,7 @@ class _FilterTab extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
-                    color: selected
-                        ? Colors.white
-                        : (badge ? Colors.white : const Color(0xFF64748B)),
+                    color: selected ? Colors.white : const Color(0xFF64748B),
                   ),
                 ),
               ),

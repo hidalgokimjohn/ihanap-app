@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import '../services/location_service.dart';
 import '../services/nearby_shops_service.dart';
 
-/// Reactive banner displayed on the requester home screen showing how many
-/// shops are active within 5 km of the user's current GPS location.
+/// Reactive nearby-shops indicator.
+///
+/// [compact] — renders a small pill for embedding inside a dark banner card.
+/// When false (default) renders the full standalone white card below the banner.
 class NearbyShopsBanner extends StatefulWidget {
-  const NearbyShopsBanner({super.key});
+  const NearbyShopsBanner({super.key, this.compact = false});
+
+  final bool compact;
 
   @override
   State<NearbyShopsBanner> createState() => _NearbyShopsBannerState();
@@ -62,14 +66,92 @@ class _NearbyShopsBannerState extends State<NearbyShopsBanner>
   Widget build(BuildContext context) {
     final loc = LocationService.currentLocationNotifier.value;
 
-    // Hide if location is unavailable and we have no data
     if (loc == null && _shops == null) return const SizedBox.shrink();
+
+    if (widget.compact) {
+      return AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: _isLoading && _shops == null
+            ? _buildCompactShimmer()
+            : _buildCompactPill(),
+      );
+    }
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 400),
       child: _isLoading && _shops == null
           ? _buildShimmer()
           : _buildBanner(),
+    );
+  }
+
+  Widget _buildCompactPill() {
+    final count = _shops?.length ?? 0;
+    // Zero shops nearby means nobody can answer a Ping right now — that's
+    // worth a warning tint, not the same neutral treatment as "has shops".
+    final warn = count == 0;
+    return Container(
+      key: ValueKey('compact_$count'),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: warn ? const Color(0xFFF59E0B).withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: warn ? const Color(0xFFF59E0B).withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (warn)
+            const Icon(Icons.info_rounded, size: 12, color: Color(0xFFFBBF24))
+          else
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  AnimatedBuilder(
+                    animation: _pulseAnim,
+                    builder: (_, __) => Container(
+                      width: 12 * _pulseAnim.value,
+                      height: 12 * _pulseAnim.value,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF10B981).withValues(alpha: 0.35 * _pulseAnim.value),
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.circle, size: 6, color: Color(0xFF10B981)),
+                ],
+              ),
+            ),
+          const SizedBox(width: 6),
+          Text(
+            count > 0
+                ? '$count ${count == 1 ? 'shop' : 'shops'} nearby'
+                : 'No shops nearby',
+            style: TextStyle(
+              color: warn ? const Color(0xFFFBBF24) : Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactShimmer() {
+    return Container(
+      key: const ValueKey('compact_shimmer'),
+      width: 110,
+      height: 26,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
     );
   }
 

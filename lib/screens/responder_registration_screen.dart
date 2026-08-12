@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/location_service.dart';
+import '../widgets/location_picker_screen.dart';
 import '../widgets/premium_button.dart';
 
 class ResponderRegistrationScreen extends StatefulWidget {
@@ -26,6 +27,12 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
 
   String? _selectedType;
   bool _isSubmitting = false;
+
+  // Set only when the owner explicitly drops a pin — this is what actually
+  // gets saved as the shop's lat/lng, distinct from wherever the device's
+  // GPS happens to be sitting at submit time.
+  double? _addressLat;
+  double? _addressLng;
 
   XFile? _photo;
   String? _existingLogoUrl;
@@ -55,7 +62,23 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
       _descriptionController.text = widget.existingShop!['description'] ?? '';
       _selectedType               = widget.existingShop!['responder_type'];
       _existingLogoUrl            = widget.existingShop!['logo_url'];
+      _addressLat                 = (widget.existingShop!['latitude'] as num?)?.toDouble();
+      _addressLng                 = (widget.existingShop!['longitude'] as num?)?.toDouble();
     }
+  }
+
+  Future<void> _openAddressMapPicker() async {
+    final picked = await Navigator.of(context).push<PickedLocation>(
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(initialLat: _addressLat, initialLng: _addressLng),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _addressLat = picked.lat;
+      _addressLng = picked.lng;
+      _addressController.text = picked.label;
+    });
   }
 
   @override
@@ -154,8 +177,21 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw Exception('User not logged in');
 
-      // Attach GPS coordinates from LocationService if available
+      // The pinned address is the shop's actual location — prefer it over
+      // wherever the device's GPS happens to be at submit time. Only fall
+      // back to device GPS when the owner never dropped a pin.
       final loc = LocationService.currentLocationNotifier.value;
+      final double? shopLat = _addressLat ?? loc?.latitude;
+      final double? shopLng = _addressLng ?? loc?.longitude;
+      String shopCity = loc?.city ?? 'Butuan City';
+      if (_addressLat != null && _addressLng != null) {
+        try {
+          final resolved = await LocationService.getCityAndBarangay(_addressLat!, _addressLng!);
+          if ((resolved['city'] ?? '').isNotEmpty) shopCity = resolved['city']!;
+        } catch (_) {
+          // Keep the device-GPS city as a fallback if reverse geocoding fails.
+        }
+      }
 
       // Upload a newly picked photo, or clear it if explicitly removed.
       // Otherwise omit the key so an unchanged existing photo is left alone.
@@ -181,9 +217,9 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
         'address':        address.isNotEmpty ? address : null,
         'description':    desc.isNotEmpty ? desc : null,
         'profile_id':     user.id,
-        'city_name':      loc?.city ?? 'Butuan City',
-        if (loc != null) 'latitude':  loc.latitude,
-        if (loc != null) 'longitude': loc.longitude,
+        'city_name':      shopCity,
+        if (shopLat != null) 'latitude':  shopLat,
+        if (shopLng != null) 'longitude': shopLng,
         if (logoChanged) 'logo_url': uploadedLogoUrl,
       };
 
@@ -388,7 +424,22 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
               const SizedBox(height: 16),
 
               // ── Address / Landmark ──────────────────────────────────
-              _buildLabel('Address / Landmark (optional)', required: false),
+              Row(
+                children: [
+                  Expanded(child: _buildLabel('Address / Landmark (optional)', required: false)),
+                  GestureDetector(
+                    onTap: _openAddressMapPicker,
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.map_rounded, size: 14, color: Color(0xFF004D40)),
+                        SizedBox(width: 4),
+                        Text('Pin on map', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF004D40))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 4),
               Text('Helps customers find you for pickup or visits.',
                   style: GoogleFonts.plusJakartaSans(fontSize: 11, color: const Color(0xFF94A3B8))),
@@ -398,6 +449,11 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
                 hint: 'e.g. Purok 3, near Libertad Elementary School',
                 icon: Icons.location_on_outlined,
                 caps: TextCapitalization.sentences,
+                // Confirms the pin, since a typed address alone doesn't tell
+                // the owner whether an exact map location is saved with it.
+                suffixIcon: (_addressLat != null && _addressLng != null)
+                    ? const Icon(Icons.check_circle_rounded, size: 20, color: Color(0xFF10B981))
+                    : null,
               ),
 
               const SizedBox(height: 16),
@@ -527,6 +583,7 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
     required IconData icon,
     TextInputType keyboard = TextInputType.text,
     TextCapitalization caps = TextCapitalization.none,
+    Widget? suffixIcon,
   }) {
     return TextField(
       controller: controller,
@@ -537,6 +594,7 @@ class _ResponderRegistrationScreenState extends State<ResponderRegistrationScree
         hintText: hint,
         hintStyle: GoogleFonts.plusJakartaSans(color: const Color(0xFF94A3B8), fontSize: 13),
         prefixIcon: Icon(icon, color: const Color(0xFF64748B), size: 20),
+        suffixIcon: suffixIcon,
         contentPadding: const EdgeInsets.all(16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),

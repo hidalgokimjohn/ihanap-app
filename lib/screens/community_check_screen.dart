@@ -7,6 +7,15 @@ import '../services/location_service.dart';
 import '../utils/user_masking_helper.dart';
 import '../widgets/community_check_bottom_sheet.dart';
 
+// Shared by the feed card and the responder sheet so a check's color/emoji
+// is derived from one place — kept it from drifting into two definitions.
+const _kCheckTypeConfig = {
+  'traffic': {'emoji': '🚦', 'label': 'Traffic',         'color': 0xFFFFF7ED, 'fg': 0xFFEA580C},
+  'queue':   {'emoji': '👥', 'label': 'Queue Line',      'color': 0xFFEFF6FF, 'fg': 0xFF2563EB},
+  'flood':   {'emoji': '🌊', 'label': 'Flood / Weather', 'color': 0xFFE0F2FE, 'fg': 0xFF0284C7},
+  'stock':   {'emoji': '📦', 'label': 'Store Stock',     'color': 0xFFF0FDF4, 'fg': 0xFF059669},
+};
+
 class CommunityCheckScreen extends StatelessWidget {
   const CommunityCheckScreen({super.key});
 
@@ -186,16 +195,11 @@ class _CheckCardState extends State<_CheckCard> {
   }
 
   static const _expiryMinutes = 15;
+  static const _collapsedResponseLimit = 2;
   Timer? _timer;
   Duration _remaining = Duration.zero;
   bool _isExpired = false;
-
-  static const _typeConfig = {
-    'traffic': {'emoji': '🚦', 'label': 'Traffic',         'color': 0xFFFFF7ED, 'fg': 0xFFEA580C},
-    'queue':   {'emoji': '👥', 'label': 'Queue Line',      'color': 0xFFEFF6FF, 'fg': 0xFF2563EB},
-    'flood':   {'emoji': '🌊', 'label': 'Flood / Weather', 'color': 0xFFE0F2FE, 'fg': 0xFF0284C7},
-    'stock':   {'emoji': '📦', 'label': 'Store Stock',     'color': 0xFFF0FDF4, 'fg': 0xFF059669},
-  };
+  bool _showAllResponses = false;
 
   @override
   void initState() {
@@ -232,6 +236,11 @@ class _CheckCardState extends State<_CheckCard> {
   double get _progressPct =>
       _isExpired ? 0.0 : _remaining.inSeconds / (_expiryMinutes * 60);
 
+  // Single threshold for "running out of time" — the countdown pill and the
+  // progress bar both read from this so they can't disagree about when to
+  // turn urgent.
+  bool get _isUrgent => !_isExpired && _remaining.inSeconds < 120;
+
   void _openResponderSheet() {
     showModalBottomSheet(
       context: context,
@@ -244,7 +253,7 @@ class _CheckCardState extends State<_CheckCard> {
   @override
   Widget build(BuildContext context) {
     final type    = widget.check['check_type'] as String? ?? 'traffic';
-    final cfg     = _typeConfig[type] ?? _typeConfig['traffic']!;
+    final cfg     = _kCheckTypeConfig[type] ?? _kCheckTypeConfig['traffic']!;
     final emoji   = cfg['emoji'] as String;
     final label   = cfg['label'] as String;
     final bgColor = Color(cfg['color'] as int);
@@ -300,17 +309,17 @@ class _CheckCardState extends State<_CheckCard> {
                     // ← This is the ONLY widget that rebuilds every second
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: _remaining.inSeconds < 120 ? const Color(0xFFFEE2E2) : const Color(0xFFF1F5F9),
+                      color: _isUrgent ? const Color(0xFFFEE2E2) : const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(50),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.timer_outlined, size: 12,
-                        color: _remaining.inSeconds < 120 ? const Color(0xFFDC2626) : const Color(0xFF64748B)),
+                        color: _isUrgent ? const Color(0xFFDC2626) : const Color(0xFF64748B)),
                       const SizedBox(width: 3),
                       Text(_countdownText,
                         style: TextStyle(
                           fontSize: 12, fontWeight: FontWeight.w800,
-                          color: _remaining.inSeconds < 120 ? const Color(0xFFDC2626) : const Color(0xFF334155),
+                          color: _isUrgent ? const Color(0xFFDC2626) : const Color(0xFF334155),
                           fontFeatures: const [FontFeature.tabularFigures()],
                         )),
                     ]),
@@ -374,9 +383,11 @@ class _CheckCardState extends State<_CheckCard> {
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // Neutral background — the type chip below already
+                              // carries this color, the avatar just needs the emoji.
                               CircleAvatar(
                                 radius: 14,
-                                backgroundColor: bgColor,
+                                backgroundColor: const Color(0xFFF1F5F9),
                                 child: Text(emoji, style: const TextStyle(fontSize: 13)),
                               ),
                               const SizedBox(width: 8),
@@ -438,29 +449,31 @@ class _CheckCardState extends State<_CheckCard> {
                           child: LinearProgressIndicator(
                             value: _progressPct,
                             backgroundColor: const Color(0xFFE2E8F0),
-                            color: _progressPct > 0.3 ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                            color: _isUrgent ? const Color(0xFFEF4444) : const Color(0xFF10B981),
                             minHeight: 4,
                           ),
                         ),
                       ],
 
-                      // Bounty banner
+                      // Bounty banner — colored from this check's own type
+                      // palette instead of a hardcoded orange, so it never
+                      // accidentally implies a category link that isn't there.
                       if (bounty > 0) ...[
                         const SizedBox(height: 10),
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFFF7ED),
+                            color: bgColor,
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFFED7AA)),
+                            border: Border.all(color: fgColor.withValues(alpha: 0.3)),
                           ),
                           child: Row(children: [
                             const Text('🎁', style: TextStyle(fontSize: 12)),
                             const SizedBox(width: 5),
                             Expanded(
                               child: Text('₱${bounty.toStringAsFixed(0)} bounty for confirmed responders',
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFEA580C))),
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fgColor)),
                             ),
                           ]),
                         ),
@@ -501,6 +514,8 @@ class _CheckCardState extends State<_CheckCard> {
                       ],
 
                       // ── Responses List ─────────────────────────────────────────
+                      // Collapsed past the first couple so a busy check doesn't
+                      // grow the card without bound during a scroll.
                       if (responses.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         const Divider(height: 1, color: Color(0xFFE2E8F0)),
@@ -508,13 +523,31 @@ class _CheckCardState extends State<_CheckCard> {
                         Text('COMMUNITY RESPONSES (${responses.length})',
                           style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: Color(0xFF94A3B8))),
                         const SizedBox(height: 8),
-                        ...responses.map((resp) => _ResponseTile(
-                              check: widget.check,
-                              response: resp,
-                              isExpired: _isExpired,
-                              isResolved: isResolved,
-                              onAcceptAndTip: _acceptAndTip,
-                            )),
+                        ...(_showAllResponses ? responses : responses.take(_collapsedResponseLimit))
+                            .map((resp) => _ResponseTile(
+                                  check: widget.check,
+                                  response: resp,
+                                  isExpired: _isExpired,
+                                  isResolved: isResolved,
+                                  onAcceptAndTip: _acceptAndTip,
+                                )),
+                        if (!_showAllResponses && responses.length > _collapsedResponseLimit)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: TextButton(
+                              onPressed: () => setState(() => _showAllResponses = true),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                foregroundColor: const Color(0xFF004D40),
+                              ),
+                              child: Text(
+                                '+${responses.length - _collapsedResponseLimit} more response${responses.length - _collapsedResponseLimit > 1 ? 's' : ''}',
+                                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
                       ],
                     ],
                   ),
@@ -657,19 +690,30 @@ class _ResponseTile extends StatelessWidget {
             ),
           ] else if (isPoster && !isExpired && !isResolved) ...[
             const SizedBox(height: 8),
+            // Filled + shadowed, unlike the flat status pills above — this is
+            // the one control here that actually spends money, so it needs to
+            // read as an action, not another passive label.
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => onAcceptAndTip(response),
-                icon: const Icon(Icons.stars, size: 14),
-                label: const Text('Accept & Tip', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFFD97706),
-                  backgroundColor: const Color(0xFFFEF3C7),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              child: GestureDetector(
+                onTap: () => onAcceptAndTip(response),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD97706),
+                    borderRadius: BorderRadius.circular(50),
+                    boxShadow: [
+                      BoxShadow(color: const Color(0xFFD97706).withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3)),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.stars_rounded, size: 14, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text('Accept & Tip', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -756,6 +800,10 @@ class _ResponderSheetState extends State<_ResponderSheet> {
   Widget build(BuildContext context) {
     final landmark = widget.check['landmark'] ?? '';
     final bounty   = (widget.check['bounty'] ?? 0).toDouble();
+    final type     = widget.check['check_type'] as String? ?? 'traffic';
+    final cfg      = _kCheckTypeConfig[type] ?? _kCheckTypeConfig['traffic']!;
+    final fgColor  = Color(cfg['fg'] as int);
+    final bgColor  = Color(cfg['color'] as int);
 
     return Container(
       decoration: const BoxDecoration(
@@ -791,22 +839,23 @@ class _ResponderSheetState extends State<_ResponderSheet> {
             ])),
           ]),
 
-          // Bounty callout
+          // Bounty callout — same type-derived palette as the feed card's
+          // bounty banner, instead of its own hardcoded orange.
           if (bounty > 0) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF7ED),
+                color: bgColor,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFFED7AA)),
+                border: Border.all(color: fgColor.withValues(alpha: 0.3)),
               ),
               child: Row(children: [
                 const Text('🎁', style: TextStyle(fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(child: Text(
                   'This check has a ₱${bounty.toStringAsFixed(0)} bounty. Confirmed responders may be rewarded by the poster.',
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF92400E), fontWeight: FontWeight.w600, height: 1.4),
+                  style: TextStyle(fontSize: 11, color: fgColor, fontWeight: FontWeight.w600, height: 1.4),
                 )),
               ]),
             ),

@@ -204,6 +204,8 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
     }
   }
 
+  // Describes the fulfillment step once it's actually been reached (the
+  // merchant marked the order ready) — past/present-tense, stated as fact.
   String _inProgressLabel(String type) {
     switch (type) {
       case 'delivery': return 'Out for Delivery';
@@ -215,6 +217,34 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
       case 'remote':   return 'Remote Help In Progress';
       default:         return 'In Progress';
     }
+  }
+
+  // Describes the same fulfillment step while it's still pending — shown as
+  // the stepper's current/glowing step and the headline pill before that
+  // step is actually reached, so it can't read as an already-true claim.
+  String _pendingStepLabel(String type) {
+    switch (type) {
+      case 'delivery': return 'Preparing Delivery';
+      case 'pickup':   return 'Preparing Pickup';
+      case 'visit':    return 'Preparing Visit';
+      case 'status':   return 'Preparing Status';
+      case 'onsite':   return 'Preparing Helper';
+      case 'go_to':    return 'Preparing Helper';
+      case 'remote':   return 'Preparing Remote Help';
+      default:         return 'In Progress';
+    }
+  }
+
+  // Single source of truth for "what's happening right now" — the headline
+  // pill and the stepper's current step both read from this so they can
+  // never show two different words for the same state.
+  String get _currentStatusLabel {
+    final fulfillment = (_requestData['fulfillment_type'] ?? 'pickup').toString();
+    return switch (_orderStage) {
+      'completed' => 'Completed',
+      'ready' => 'Awaiting Confirmation',
+      _ => _pendingStepLabel(fulfillment),
+    };
   }
 
   String _formatDateTime(String? iso) {
@@ -300,12 +330,8 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
   }
 
   Widget _buildStageStepper(String fulfillmentType) {
-    final steps = [
-      ('Matched', Icons.check_circle_rounded),
-      (_inProgressLabel(fulfillmentType), Icons.local_shipping_rounded),
-      ('Completed', Icons.verified_rounded),
-    ];
-    // 'Matched' is always already achieved by the time this sheet can open,
+    final icons = [Icons.check_circle_rounded, Icons.local_shipping_rounded, Icons.verified_rounded];
+    // 'Found' is always already achieved by the time this sheet can open,
     // so currentIndex points to the step still awaiting action.
     final currentIndex = switch (_orderStage) {
       'completed' => 3,
@@ -313,8 +339,23 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
       _ => 1,
     };
 
+    // Pending phrasing only applies to the step that's actually current —
+    // a future step still shows its plain destination name, and a done
+    // step shows the "this really happened" phrasing. Otherwise the same
+    // word ends up describing three different truths.
+    String labelFor(int stepIndex, bool isDone, bool isCurrent) {
+      switch (stepIndex) {
+        case 0:
+          return 'Found';
+        case 1:
+          return isCurrent ? _pendingStepLabel(fulfillmentType) : _inProgressLabel(fulfillmentType);
+        default:
+          return isCurrent ? 'Awaiting Confirmation' : 'Completed';
+      }
+    }
+
     return Row(
-      children: List.generate(steps.length * 2 - 1, (i) {
+      children: List.generate(icons.length * 2 - 1, (i) {
         if (i.isOdd) {
           final connectorDone = (i ~/ 2) < currentIndex;
           return Expanded(
@@ -328,7 +369,8 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
         final stepIndex = i ~/ 2;
         final isDone = stepIndex < currentIndex;
         final isCurrent = stepIndex == currentIndex;
-        final (label, icon) = steps[stepIndex];
+        final label = labelFor(stepIndex, isDone, isCurrent);
+        final icon = icons[stepIndex];
 
         return Column(
           children: [
@@ -415,7 +457,7 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
     if (!_isBuyer && !_isMerchant) {
       return _buildWaitingBanner(
         _orderStage == 'ready'
-            ? 'This request is fulfilled and being handed over.'
+            ? '$_currentStatusLabel — fulfilled and being handed over.'
             : 'This request has already been matched with another shop.',
       );
     }
@@ -437,7 +479,7 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
           ),
         );
       }
-      return _buildWaitingBanner('Waiting for the customer to confirm they received it.');
+      return _buildWaitingBanner('$_currentStatusLabel — waiting for the customer to confirm they received it.');
     }
 
     // stage == 'matched'
@@ -471,7 +513,7 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
     // buyer, stage == 'matched'
     return Column(
       children: [
-        _buildWaitingBanner('The merchant is preparing your order.'),
+        _buildWaitingBanner('$_currentStatusLabel — the merchant is preparing your order.'),
         const SizedBox(height: 10),
         TextButton.icon(
           onPressed: _isUpdating ? null : () => _advanceStage('completed'),
@@ -503,6 +545,144 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
     );
   }
 
+  List<_LogEntry> _buildLogEntries(String fulfillmentType) {
+    final entries = <_LogEntry>[];
+
+    entries.add(_LogEntry(
+      title: 'Ping Broadcasted',
+      subtitle: 'Request sent to nearby shops',
+      timestamp: _formatDateTime(_requestData['created_at'] as String?),
+      icon: Icons.bolt_rounded,
+      color: const Color(0xFF64748B),
+    ));
+
+    if (_offer != null) {
+      final price = ((_offer!['offered_price'] ?? 0) as num).toStringAsFixed(2);
+      entries.add(_LogEntry(
+        title: 'Offer Received',
+        subtitle: '${_offer!['seller_name'] ?? 'Merchant'} offered ₱$price',
+        timestamp: _formatDateTime(_offer!['created_at'] as String?),
+        icon: Icons.local_offer_rounded,
+        color: const Color(0xFF2563EB),
+      ));
+    }
+
+    final matchedAt = _tags['matched_at'] as String?;
+    if (matchedAt != null) {
+      entries.add(_LogEntry(
+        title: 'Offer Accepted',
+        subtitle: 'Matched with merchant',
+        timestamp: _formatDateTime(matchedAt),
+        icon: Icons.handshake_rounded,
+        color: const Color(0xFF004D40),
+      ));
+    }
+
+    final readyAt = _tags['ready_at'] as String?;
+    if (readyAt != null) {
+      entries.add(_LogEntry(
+        title: 'Marked Ready',
+        subtitle: _inProgressLabel(fulfillmentType),
+        timestamp: _formatDateTime(readyAt),
+        icon: Icons.local_shipping_rounded,
+        color: const Color(0xFFB45309),
+      ));
+    }
+
+    final completedAt = _tags['completed_at'] as String?;
+    if (completedAt != null) {
+      final completedBy = _tags['completed_by'] == 'merchant' ? 'the merchant' : 'the customer';
+      entries.add(_LogEntry(
+        title: 'Transaction Completed',
+        subtitle: 'Confirmed by $completedBy',
+        timestamp: _formatDateTime(completedAt),
+        icon: Icons.verified_rounded,
+        color: const Color(0xFF15803D),
+      ));
+    }
+
+    return entries;
+  }
+
+  Widget _buildTransactionLog(String fulfillmentType) {
+    final entries = _buildLogEntries(fulfillmentType);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.history_rounded, size: 16, color: Color(0xFF004D40)),
+            const SizedBox(width: 8),
+            Text('Transaction Log',
+              style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A))),
+          ]),
+          const SizedBox(height: 18),
+          ...List.generate(entries.length, (i) {
+            final entry = entries[i];
+            final isLast = i == entries.length - 1;
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(color: entry.color.withValues(alpha: 0.12), shape: BoxShape.circle),
+                      child: Icon(entry.icon, size: 14, color: entry.color),
+                    ),
+                    if (!isLast)
+                      Container(
+                        width: 2,
+                        height: 34,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        color: const Color(0xFFE2E8F0),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: isLast ? 0 : 12, top: 3),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(entry.title,
+                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A))),
+                            ),
+                            if (entry.timestamp.isNotEmpty)
+                              Text(entry.timestamp,
+                                style: GoogleFonts.plusJakartaSans(fontSize: 10.5, color: const Color(0xFF94A3B8), fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                        if (entry.subtitle != null) ...[
+                          const SizedBox(height: 2),
+                          Text(entry.subtitle!,
+                            style: GoogleFonts.plusJakartaSans(fontSize: 12, color: const Color(0xFF64748B))),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   void _copyTransactionNumber(String txn) {
     Clipboard.setData(ClipboardData(text: txn));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -523,11 +703,12 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
     final categoryEmoji = _categoryEmoji(category);
     final txn = transactionNumber(_requestData['id']);
 
-    final stagePill = switch (_orderStage) {
-      'completed' => ('Completed', const Color(0xFFDCFCE7), const Color(0xFF15803D)),
-      'ready' => ('Ready', const Color(0xFFFFF7ED), const Color(0xFFB45309)),
-      _ => ('Matched', const Color(0xFFE2F0F0), const Color(0xFF004D40)),
-    };
+    // Same phrase and color language as the stepper's current step below —
+    // the pill used to hardcode its own wording ("Found"/"Ready") that could
+    // fall out of sync with what the stepper was actually highlighting.
+    final stagePill = _orderStage == 'completed'
+        ? (_currentStatusLabel, const Color(0xFFDCFCE7), const Color(0xFF15803D))
+        : (_currentStatusLabel, const Color(0xFFFFF7ED), const Color(0xFFB45309));
 
     return DraggableScrollableSheet(
       initialChildSize: 0.88,
@@ -643,7 +824,7 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
                           Text('Agreed Price', style: GoogleFonts.plusJakartaSans(color: const Color(0xFF64748B), fontWeight: FontWeight.w600, fontSize: 13)),
                           Text(
                             '₱${((_offer?['offered_price'] ?? 0) as num).toStringAsFixed(2)}',
-                            style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.w900, color: const Color(0xFF004D40), letterSpacing: -0.5),
+                            style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w900, color: const Color(0xFF004D40), letterSpacing: -0.3),
                           ),
                         ],
                       ),
@@ -655,10 +836,13 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
                 Text('Transaction Parties', style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A))),
                 const SizedBox(height: 12),
 
+                // Phone/call is withheld on whichever card represents the
+                // current viewer themself — there's no reason to offer a
+                // "call yourself" button next to your own contact info.
                 _buildPartyCard(
                   title: 'CUSTOMER / BUYER',
                   name: _buyerProfile?['full_name'] ?? '',
-                  phone: _buyerProfile?['contact_number'] ?? '',
+                  phone: _isBuyer ? '' : (_buyerProfile?['contact_number'] ?? ''),
                   iconBg: const Color(0xFFE0E7FF),
                   iconColor: const Color(0xFF4F46E5),
                   icon: Icons.person_rounded,
@@ -668,11 +852,14 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
                   title: 'MERCHANT / RESPONDER',
                   subtitle: _offer?['seller_name'] ?? 'Shop',
                   name: _merchantProfile?['full_name'] ?? '',
-                  phone: _merchantProfile?['contact_number'] ?? '',
+                  phone: _isMerchant ? '' : (_merchantProfile?['contact_number'] ?? ''),
                   iconBg: const Color(0xFFDCFCE7),
                   iconColor: const Color(0xFF16A34A),
                   icon: Icons.storefront_rounded,
                 ),
+
+                const SizedBox(height: 24),
+                _buildTransactionLog(fulfillment),
 
                 const SizedBox(height: 20),
                 _buildActionArea(),
@@ -696,4 +883,20 @@ class _OrderSummarySheetState extends State<OrderSummarySheet> {
       },
     );
   }
+}
+
+class _LogEntry {
+  final String title;
+  final String? subtitle;
+  final String timestamp;
+  final IconData icon;
+  final Color color;
+
+  _LogEntry({
+    required this.title,
+    this.subtitle,
+    required this.timestamp,
+    required this.icon,
+    required this.color,
+  });
 }

@@ -351,9 +351,13 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
                     const SizedBox(width: 6),
                     InkWell(
                       onTap: _isUpdatingLocation ? null : () => _updateLocation(forceRefresh: true),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF1F5F9),
+                          shape: BoxShape.circle,
+                        ),
                         child: _isUpdatingLocation
                             ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF004D40)))
                             : const Icon(Icons.refresh_rounded, size: 14, color: Color(0xFF004D40)),
@@ -368,55 +372,98 @@ class _SellerScreenState extends State<SellerScreen> with WidgetsBindingObserver
                   // -- Shop Switcher ----------------------------------------
                   const Text('Active Shop', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.5)),
                   const SizedBox(height: 6),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        ..._shops.asMap().entries.map((entry) {
-                          final i = entry.key;
-                          final shop = entry.value;
-                          final isActive = i == _activeShopIndex;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: GestureDetector(
-                              onTap: () => _switchShop(i),
-                              onLongPress: () => _editShop(shop),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: isActive ? const Color(0xFF004D40) : const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: isActive ? const Color(0xFF004D40) : const Color(0xFFE2E8F0),
-                                    width: isActive ? 2 : 1,
+                  Stack(
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ..._shops.asMap().entries.map((entry) {
+                              final i = entry.key;
+                              final shop = entry.value;
+                              final isActive = i == _activeShopIndex;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  decoration: BoxDecoration(
+                                    color: isActive ? const Color(0xFF004D40) : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: isActive ? const Color(0xFF004D40) : const Color(0xFFE2E8F0),
+                                      width: isActive ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        InkWell(
+                                          onTap: () => _switchShop(i),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(_typeEmoji(shop['responder_type']), style: const TextStyle(fontSize: 13)),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  shop['shop_name'] ?? 'Shop',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isActive ? Colors.white : const Color(0xFF334155),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        // Independent tap target — edit no longer hides
+                                        // behind a long-press only the active chip hints at.
+                                        if (isActive)
+                                          InkWell(
+                                            onTap: () => _editShop(shop),
+                                            child: const Padding(
+                                              padding: EdgeInsets.only(right: 10, top: 8, bottom: 8, left: 2),
+                                              child: Icon(Icons.edit_outlined, size: 14, color: Colors.white70),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(_typeEmoji(shop['responder_type']), style: const TextStyle(fontSize: 13)),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      shop['shop_name'] ?? 'Shop',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: isActive ? Colors.white : const Color(0xFF334155),
-                                      ),
-                                    ),
-                                    if (isActive) ...[
-                                      const SizedBox(width: 4),
-                                      const Icon(Icons.edit_outlined, size: 11, color: Colors.white60),
-                                    ],
-                                  ],
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                      // Scroll hint — with 3+ shops the row is likely wider than
+                      // the screen; a plain fade is invisible on this white
+                      // header, so use a small chevron chip instead.
+                      if (_shops.length > 2)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          child: IgnorePointer(
+                            child: Container(
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.only(left: 6),
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [Color(0x00FFFFFF), Color(0xFFFFFFFF)],
+                                  stops: [0.0, 0.55],
                                 ),
                               ),
+                              child: const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFF94A3B8)),
                             ),
-                          );
-                        }).toList(),
-                      ],
-                    ),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ],
@@ -800,17 +847,22 @@ class _RequestCard extends StatelessWidget {
 
   String _fulfillmentLabel(String type) {
     switch (type) {
-      case 'delivery': return '🛵 Express Delivery';
-      case 'pickup':   return '🛍️ Reserve for Pickup';
-      case 'visit':    return '🔧 Schedule Site Visit';
-      case 'reserve':  return '📅 Inquire / Reserve';
-      case 'status':   return '📸 Live Photo / Status';
-      case 'onsite':   return '🏠 Come to Them';
-      case 'go_to':    return '📍 Go to Location';
-      case 'remote':   return '📱 Remote Help';
-      default:         return '✨ $type';
+      case 'delivery': return 'Express Delivery';
+      case 'pickup':   return 'Reserve for Pickup';
+      case 'visit':    return 'Schedule Site Visit';
+      case 'reserve':  return 'Inquire / Reserve';
+      case 'status':   return 'Live Photo / Status';
+      case 'onsite':   return 'Come to Them';
+      case 'go_to':    return 'Go to Location';
+      case 'remote':   return 'Remote Help';
+      default:         return type;
     }
   }
+
+  // Fulfillment types where the merchant physically has to close a distance
+  // gap — proximity is a hard constraint on whether they can even respond,
+  // not just a nice-to-know, so it earns a louder badge than the default.
+  static const _proximitySensitive = {'visit', 'onsite', 'go_to'};
 
   @override
   Widget build(BuildContext context) {
@@ -834,7 +886,7 @@ class _RequestCard extends StatelessWidget {
     final airconPreferred = tags['aircon_preferred'] == true;
     final isCompleted     = isMatched && tags['order_stage'] == 'completed';
 
-    String distanceLabel = '📍 Nearby';
+    String distanceLabel = 'Nearby';
     if (currentPosition != null && tags['lat'] != null && tags['lng'] != null) {
       try {
         final reqLat = (tags['lat'] as num).toDouble();
@@ -845,9 +897,10 @@ class _RequestCard extends StatelessWidget {
           reqLat,
           reqLng,
         );
-        distanceLabel = '📍 $dist away';
+        distanceLabel = '$dist away';
       } catch (_) {}
     }
+    final proximityMatters = _proximitySensitive.contains(fulfillment);
 
     String emoji = '📌';
     if (category.contains('Parts'))     emoji = '🚗';
@@ -855,10 +908,10 @@ class _RequestCard extends StatelessWidget {
     if (category.contains('Rooms'))     emoji = '🏠';
     if (category.contains('Community')) emoji = '📍';
 
-    final cardColor   = isMatched      ? const Color(0xFFECFDF5)
+    final cardColor   = isMatched      ? const Color(0xFFEFF6FF)
                       : alreadyOffered ? const Color(0xFFF0FDF4)
                       : Colors.white;
-    final borderColor = isMatched      ? const Color(0xFFD1FAE5)
+    final borderColor = isMatched      ? const Color(0xFFBFDBFE)
                       : alreadyOffered ? const Color(0xFF86EFAC)
                       : const Color(0xFFE2E8F0);
     final borderWidth = (isMatched || alreadyOffered) ? 1.5 : 1.0;
@@ -904,23 +957,27 @@ class _RequestCard extends StatelessWidget {
                 PingerHeader(
                   userId: request['user_id']?.toString(),
                   createdAt: request['created_at']?.toString(),
+                  // Proximity is a hard constraint for site-visit / come-to-them
+                  // requests, so it gets a bolder, bordered badge there — for
+                  // pickup/delivery it's just background context.
                   trailing: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    padding: EdgeInsets.symmetric(horizontal: proximityMatters ? 10 : 9, vertical: proximityMatters ? 6 : 5),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDF4),
+                      color: proximityMatters ? const Color(0xFFDCFCE7) : const Color(0xFFF0FDF4),
                       borderRadius: BorderRadius.circular(50),
+                      border: proximityMatters ? Border.all(color: const Color(0xFF86EFAC), width: 1.2) : null,
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.near_me_rounded, size: 11, color: Color(0xFF004D40)),
+                        Icon(Icons.near_me_rounded, size: proximityMatters ? 13 : 11, color: const Color(0xFF15803D)),
                         const SizedBox(width: 4),
                         Text(
-                          distanceLabel.replaceAll('📍 ', ''),
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF004D40),
+                          distanceLabel,
+                          style: TextStyle(
+                            fontSize: proximityMatters ? 12 : 11,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF15803D),
                           ),
                         ),
                       ],
@@ -932,18 +989,16 @@ class _RequestCard extends StatelessWidget {
                 const Divider(color: Color(0xFFF1F5F9), height: 1),
                 const SizedBox(height: 14),
 
-                // ── What they need ────────────────────────────────────
+                // ── What they need — status is already told by the card's
+                // tint/border and the action button, so this chip just
+                // describes the category instead of re-stating state ──
                 Row(
                   children: [
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: alreadyOffered
-                              ? const Color(0xFFDCFCE7)
-                              : isMatched
-                                  ? const Color(0xFFDCFCE7)
-                                  : const Color(0xFFF1F5F9),
+                          color: const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(50),
                         ),
                         child: Text(
@@ -951,9 +1006,7 @@ class _RequestCard extends StatelessWidget {
                           style: GoogleFonts.outfit(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: (alreadyOffered || isMatched)
-                                ? const Color(0xFF15803D)
-                                : const Color(0xFF475569),
+                            color: const Color(0xFF475569),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -983,13 +1036,14 @@ class _RequestCard extends StatelessWidget {
 
                 const SizedBox(height: 12),
 
-                // Item Title / Description
+                // Item Title / Description — the single most important line
+                // on the card, so it should out-weigh the budget and chips
                 Text(
                   description,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.outfit(
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: const Color(0xFF0F172A),
                     height: 1.3,
@@ -1048,22 +1102,10 @@ class _RequestCard extends StatelessWidget {
                           Text(
                             _formatAccountingCurrency(maxBudget),
                             style: GoogleFonts.outfit(
-                              fontSize: 24,
+                              fontSize: 18,
                               fontWeight: FontWeight.w900,
                               color: const Color(0xFF004D40),
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              transactionNumber(request['id']),
-                              style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w700, letterSpacing: 0.3),
+                              letterSpacing: -0.3,
                             ),
                           ),
                         ],
@@ -1076,7 +1118,7 @@ class _RequestCard extends StatelessWidget {
                     if (isMatched)
                       _StatusButton(
                         label: isCompleted ? 'Completed' : 'Accepted',
-                        icon: isCompleted ? Icons.task_alt_rounded : Icons.verified_rounded,
+                        icon: isCompleted ? Icons.verified_rounded : Icons.handshake_rounded,
                         bg: const Color(0xFF10B981),
                         fg: Colors.white,
                       )
@@ -1129,6 +1171,15 @@ class _RequestCard extends StatelessWidget {
                         ),
                       ),
                   ],
+                ),
+
+                const SizedBox(height: 8),
+
+                // ── Fine print — reference info, kept low-contrast and
+                // out of the way of the budget/action decision ──
+                Text(
+                  transactionNumber(request['id']),
+                  style: const TextStyle(fontSize: 10, color: Color(0xFFCBD5E1), fontWeight: FontWeight.w600, letterSpacing: 0.3),
                 ),
               ],
             ),
